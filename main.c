@@ -112,7 +112,7 @@ static void window_main(int argc, char *argv[])
     GtkWidget *label_username = NULL;
     GtkWidget *label_password = NULL;
     GtkWidget *button_connect = NULL;
-    GtkWidget *table = NULL;
+    GtkWidget *grid = NULL;
     GdkPixbuf *icon = NULL;
 
     struct data_connect *dc = g_slice_new0(struct data_connect);
@@ -125,27 +125,27 @@ static void window_main(int argc, char *argv[])
     icon = image_load("icon.png");
 
     gtk_window_set_title(GTK_WINDOW(window), "Connect");
-    gtk_window_resize(GTK_WINDOW(window), 200, 200);
+    gtk_window_resize(GTK_WINDOW(window), 200, 100);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     gtk_window_set_icon(GTK_WINDOW(window), icon);
     gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
-    /* table */
-    table = gtk_table_new(4, 2, FALSE);
-    gtk_container_add(GTK_CONTAINER(window), table);
-    gtk_table_set_col_spacings(GTK_TABLE(table), 10);
-    gtk_table_set_row_spacing(GTK_TABLE(table), 2, 20);
+    /* grid */
+    grid = gtk_grid_new();
+    gtk_container_add(GTK_CONTAINER(window), grid);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
 
     /* labels */
     label_host = gtk_label_new("Host: ");
     label_username = gtk_label_new("Username: ");
     label_password = gtk_label_new("Password: ");
 
-    gtk_misc_set_alignment(GTK_MISC(label_host), 0.0f, 0.5f);
-    gtk_misc_set_alignment(GTK_MISC(label_username), 0.0f, 0.5f);
-    gtk_misc_set_alignment(GTK_MISC(label_password), 0.0f, 0.5f);
+    gtk_label_set_xalign(GTK_LABEL(label_host), 0);
+    gtk_label_set_xalign(GTK_LABEL(label_username), 0);
+    gtk_label_set_xalign(GTK_LABEL(label_password), 0);
 
     /* edit texts */
     dc->host = gtk_entry_new();
@@ -165,19 +165,13 @@ static void window_main(int argc, char *argv[])
     g_signal_connect(button_connect, "clicked", G_CALLBACK(connect), dc);
 
     /* pack widgets into the table */
-    gtk_table_attach_defaults(GTK_TABLE(table), label_host, 0, 1, 0, 1);
-    gtk_table_attach_defaults(GTK_TABLE(table), label_username, 0, 1, 1, 2);
-    gtk_table_attach_defaults(GTK_TABLE(table), label_password, 0, 1, 2, 3);
-
-    gtk_table_attach(GTK_TABLE(table), dc->host, 1, 2, 0, 1,
-        GTK_SHRINK, GTK_SHRINK, 0, 0);
-    gtk_table_attach(GTK_TABLE(table), dc->username, 1, 2, 1, 2,
-        GTK_SHRINK, GTK_SHRINK, 0, 0);
-    gtk_table_attach(GTK_TABLE(table), dc->password, 1, 2, 2, 3,
-        GTK_SHRINK, GTK_SHRINK, 0, 0);
-
-    gtk_table_attach(GTK_TABLE(table), button_connect, 0, 2, 3, 4,
-        GTK_SHRINK, GTK_SHRINK, 0, 0);
+    gtk_grid_attach(GTK_GRID(grid), label_host,     0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), dc->host,       1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), dc->username,   1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), dc->password,   1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), button_connect, 0, 3, 2, 1);
 
     gtk_widget_show_all(window);
 
@@ -237,6 +231,7 @@ static void window_db(struct data_connect *data)
     gtk_widget_show_all(window);
 }
 
+/* show table data */
 static void window_table(const char *tb_name)
 {
     GtkWidget *window = NULL;
@@ -377,6 +372,7 @@ static GtkTreeModel * create_and_fill_model(void)
     /* get number of fields from result */
     dbs_n = mysql_num_fields(dbs_res);
 
+    /* TODO: there is something wrong */
     /* write first row to 'dbs' */
     while ((dbs_row = mysql_fetch_row(dbs_res))) {
         gboolean pass;
@@ -384,14 +380,13 @@ static GtkTreeModel * create_and_fill_model(void)
         int j;
 
         for (i = 0; i < dbs_n; i++) {
-            pass = FALSE; /* for pass databases */
+            pass = FALSE;
 
             for (j = 0; j < 3; j++) {
                 if (strcmp(dbs_pass_row[j], dbs_row[i]) == 0)
                     pass = TRUE;
             }
 
-            /* if not pass then ... */
             if (!pass) {
                 gchar *cmd;
 
