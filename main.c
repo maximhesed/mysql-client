@@ -326,13 +326,24 @@ static void on_select(GtkWidget *widget, gpointer data)
     GtkWidget *selection = data;
     GtkTreeModel *model = NULL;
     GtkTreeIter iter;
+    GtkTreeIter parent;
 
-    gchar *value = NULL;
+    /* get selected item into the 'parent' */
+    gtk_tree_selection_get_selected(GTK_TREE_SELECTION(selection), &model,
+        &parent);
 
-    if (gtk_tree_selection_get_selected(GTK_TREE_SELECTION(selection), &model,
-        &iter)) {
-        gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
+    /* if 'parent' has children(s) then nothing to do */
+    if (gtk_tree_model_iter_children(GTK_TREE_MODEL(model), &iter, &parent))
+        return;
+    else {
+        /* TODO: what to do, if database is empty? */
+        /*
+            here, 'parent' don't have children(s) (it's table)
+            so show table
+        */
+        gchar *value = NULL;
 
+        gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
         window_table(value);
 
         g_free(value);
