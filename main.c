@@ -35,10 +35,10 @@ int main(int argc, char *argv[])
 }
 
 /*
-* Load image by specified path.
-*
-* 1 arg - image path
-*/
+ * Load image by specified path.
+ *
+ * @path - image path
+ */
 static GdkPixbuf * image_load(const gchar *path)
 {
     GError *error = NULL;
@@ -53,24 +53,22 @@ static GdkPixbuf * image_load(const gchar *path)
 }
 
 /*
-* Connect to MySQL server.
-*
-* 1 arg - widget which will send to callback
-* 2 arg - user data (see above)
-*/
+ * Connect to MySQL server.
+ *
+ * @data - user data (see above)
+ */
 static void connect(GtkWidget *widget, struct data_connect *data)
 {
     struct data_connect *dc = data;
 
-    const char *host = gtk_entry_get_text(GTK_ENTRY(dc->host));
-    const char *username = gtk_entry_get_text(GTK_ENTRY(dc->username));
-    const char *password = gtk_entry_get_text(GTK_ENTRY(dc->password));
+    const gchar *host = gtk_entry_get_text(GTK_ENTRY(dc->host));
+    const gchar *username = gtk_entry_get_text(GTK_ENTRY(dc->username));
+    const gchar *password = gtk_entry_get_text(GTK_ENTRY(dc->password));
 
     if (strcmp(host, "") == 0 || strcmp(username, "") == 0)
         return;
 
     con = mysql_init(NULL);
-
     if (con == NULL) {
         g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
 
@@ -164,7 +162,7 @@ static void window_main(int argc, char *argv[])
 
     g_signal_connect(button_connect, "clicked", G_CALLBACK(connect), dc);
 
-    /* pack widgets into the table */
+    /* pack widgets into the grid */
     gtk_grid_attach(GTK_GRID(grid), label_host,     0, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1, 1, 1);
     gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2, 1, 1);
@@ -231,11 +229,14 @@ static void window_db(struct data_connect *data)
     gtk_widget_show_all(window);
 }
 
-/* show table data */
+/* Show table data.
+ *
+ * @tb_name - name of the table which will be displayed
+ */
 static void window_table(const char *tb_name)
 {
     GtkWidget *window = NULL;
-    GtkWidget *table = NULL;
+    GtkWidget *grid = NULL;
     GtkWidget *label = NULL;
 
     gchar *cmd;
@@ -259,15 +260,14 @@ static void window_table(const char *tb_name)
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
 
-    /* table */
-    table = gtk_table_new(1, 1, FALSE);
-    gtk_container_add(GTK_CONTAINER(window), table);
-    gtk_table_set_col_spacings(GTK_TABLE(table), 5);
-    gtk_table_set_row_spacings(GTK_TABLE(table), 5);
+    /* grid */
+    grid = gtk_grid_new();
+    gtk_container_add(GTK_CONTAINER(window), grid);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
 
     /* query */
     cmd = g_strdup_printf("select * from `%s`", tb_name);
-
     if (mysql_query(con, cmd))
         terminate_connection(con);
 
@@ -280,12 +280,12 @@ static void window_table(const char *tb_name)
     while ((vls_fld = mysql_fetch_field(vls_res))) {
         label = gtk_label_new(vls_fld->name);
 
-        gtk_table_attach_defaults(GTK_TABLE(table), label,
-            x, (x + 1), y, (y + 1));
+        gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
         x++;
     }
 
+    x = 0;
     y++;
 
     /* fill column values */
@@ -296,11 +296,14 @@ static void window_table(const char *tb_name)
 
         for (i = 0; i < vls_n; i++) {
             label = gtk_label_new(vls_row[i]);
+            gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
 
-            gtk_table_attach_defaults(GTK_TABLE(table), label,
-                i, (i + 1), y, (y + 1));
+            gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
+
+            x++;
         }
 
+        x = 0;
         y++;
     }
 
@@ -311,11 +314,10 @@ static void window_table(const char *tb_name)
 }
 
 /*
-* Destroy window.
-*
-* 1 arg - widget which will send to callback
-* 2 arg - window which will destroyed
-*/
+ * Destroy window.
+ *
+ * @window - window which will be destroyed
+ */
 static void window_destroy(GtkWidget *widget, GtkWidget *window)
 {
     gtk_widget_destroy(window);
@@ -323,30 +325,44 @@ static void window_destroy(GtkWidget *widget, GtkWidget *window)
 
 static void on_select(GtkWidget *widget, gpointer data)
 {
-    GtkWidget *selection = data;
+    GtkTreeSelection *selection = data;
     GtkTreeModel *model = NULL;
     GtkTreeIter iter;
+    GtkTreeIter child;
     GtkTreeIter parent;
 
-    /* get selected item into the 'parent' */
-    gtk_tree_selection_get_selected(GTK_TREE_SELECTION(selection), &model,
-        &parent);
-
-    /* if 'parent' has children(s) then nothing to do */
-    if (gtk_tree_model_iter_children(GTK_TREE_MODEL(model), &iter, &parent))
+    /* put selected item into the 'iter' */
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
+        /* no selected node, strange... */
         return;
-    else {
-        /* TODO: what to do, if database is empty? */
+    }
+
+    /* TODO: what to do, if database is empty? */
+    /* if 'iter' hasn't children(s) (it's table), so show table */
+    if (!gtk_tree_model_iter_children(model, &child, &iter)) {
         /*
-            here, 'parent' don't have children(s) (it's table)
-            so show table
-        */
+         * maybe this table from another database,
+         * so use its database just in case
+         */
         gchar *value = NULL;
+        gchar *cmd;
+
+        if (!gtk_tree_model_iter_parent(model, &parent, &iter)) {
+            /* something went wrong */
+            return;
+        }
 
         gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
+
+        cmd = g_strdup_printf("use %s", value);
+        if (mysql_query(con, cmd))
+            terminate_connection(con);
+
+        gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
         window_table(value);
 
         g_free(value);
+        g_free(cmd);
     }
 }
 
@@ -406,7 +422,6 @@ static GtkTreeModel * create_and_fill_model(void)
                     dbs_row[i], -1);
 
                 cmd = g_strdup_printf("use %s", dbs_row[i]);
-
                 if (mysql_query(con, cmd))
                     terminate_connection(con);
 
