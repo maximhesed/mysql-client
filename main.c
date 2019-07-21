@@ -421,7 +421,7 @@ static void window_table(const char *tb_name, MYSQL *con)
 }
 
 /*
- * Table select handler.
+ * Table selection handler.
  *
  * @data - special data pointer
  *
