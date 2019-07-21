@@ -3,14 +3,13 @@
 
 #include "data.h"
 
+struct servers_data *servers;
+
 enum {
     COLUMN = 0,
     NUM_COLS
 };
 
-struct servers_data *servers;
-
-static GdkPixbuf *    image_load(const gchar *path);
 static void           connection_open(GtkWidget *widget, gpointer data);
 static void           connection_close(GtkWidget *widget, gpointer data);
 static void           connection_terminate(MYSQL *con);
@@ -44,24 +43,6 @@ int main(int argc, char *argv[])
     mysql_library_end();
 
     return 0;
-}
-
-/*
- * Load image by specified path.
- *
- * @path - image path
- */
-static GdkPixbuf * image_load(const gchar *path)
-{
-    GError *error = NULL;
-
-    GdkPixbuf *pixbuf = gdk_pixbuf_new_from_file(path, &error);
-    if (!pixbuf) {
-        g_print("%s\n", error->message);
-        g_error_free(error);
-    }
-
-    return pixbuf;
 }
 
 /*
@@ -183,11 +164,18 @@ static void window_main(int argc, char *argv[])
 
     gtk_init(&argc, &argv);
 
+    /* icon */
+    GError *error = NULL;
+
+    icon = gdk_pixbuf_new_from_file("icon.png", &error);
+    if (!icon) {
+        g_print("Failed to load application icon!\n");
+        g_print("%s\n", error->message);
+        g_error_free(error);
+    }
+
     /* window */
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-
-    icon = image_load("icon.png");
-
     gtk_window_set_title(GTK_WINDOW(window), "Login");
     gtk_window_resize(GTK_WINDOW(window), 200, 100);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
@@ -279,6 +267,13 @@ static void data_free(GtkWidget *widget, gpointer data)
     g_free(data);
 }
 
+/*
+ * Create databases window.
+ *
+ * @con - MySQL handler
+ *
+ * Creates window which contain databases extracted from con.
+ */
 static void window_db(MYSQL *con)
 {
     GtkWidget *window = NULL;
@@ -343,6 +338,8 @@ static void window_db(MYSQL *con)
  *
  * @tb_name - name of the table which will be displayed
  * @con - MySQL handler
+ *
+ * Creates window which contain data from selected database(s).
  */
 static void window_table(const char *tb_name, MYSQL *con)
 {
@@ -423,6 +420,18 @@ static void window_table(const char *tb_name, MYSQL *con)
     gtk_widget_show_all(window);
 }
 
+/*
+ * Table select handler.
+ *
+ * @data - special data pointer
+ *
+ * struct data {
+ *     MYSQL *con;
+ *     GtkTreeSelection *selection;
+ * };
+ *
+ * Handles table selection and creates table window.
+ */
 static void table_selected(GtkWidget *widget, gpointer data)
 {
     GtkTreeSelection *selection = NULL;
@@ -486,26 +495,26 @@ static GtkTreeModel * databases_get(MYSQL *con)
     MYSQL_RES *dbs_res;
     MYSQL_RES *tbs_res;
     MYSQL_ROW dbs_row; /* database names */
-    MYSQL_ROW tbs_row; /* database's table names */
+    MYSQL_ROW tbs_row; /* table names */
 
+    /* TODO: If root? */
     /* unnecessary database names */
-    const char dbs_pass_row[3][64] = {
+    const char dbs_pass_row[3][32] = {
         "information_schema",
-        "mysql",
+        //"mysql",
         "performance_schema"
     };
 
     int dbs_n;
 
-    ts = gtk_tree_store_new(NUM_COLS, G_TYPE_STRING);
-
     if (mysql_query(con, "show databases"))
         connection_terminate(con);
 
     dbs_res = mysql_store_result(con);
-
     if (dbs_res == NULL)
         connection_terminate(con);
+
+    ts = gtk_tree_store_new(NUM_COLS, G_TYPE_STRING);
 
     /* get number of fields from result */
     dbs_n = mysql_num_fields(dbs_res);
@@ -513,6 +522,7 @@ static GtkTreeModel * databases_get(MYSQL *con)
     /* write first row to 'dbs' */
     while ((dbs_row = mysql_fetch_row(dbs_res))) {
         gboolean pass;
+
         int i;
         int j;
 
@@ -599,6 +609,13 @@ static GtkWidget * servers_view_create(GtkListStore *store)
     return view;
 }
 
+/*
+ * Server selection handler.
+ *
+ * @data - GtkTreeSelection *selection
+ *
+ * Handles selected server and open it.
+ */
 static void server_selected(GtkWidget *widget, gpointer data)
 {
     GtkTreeSelection *selection = NULL;
