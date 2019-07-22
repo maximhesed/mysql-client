@@ -19,4 +19,7 @@ struct servers_data {
     gchar *password;
 };
 
+typedef GtkApplication GtkApp;
+typedef const gchar c_gchar;
+
 #endif /* DATA_H */
