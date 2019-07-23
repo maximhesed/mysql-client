@@ -4,21 +4,28 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 
-struct connection_data {
+struct application_data {
+    GtkApplication *app;
+    gpointer data;
+};
+
+struct server_data {
     GtkWidget *host;
     GtkWidget *username;
     GtkWidget *password;
-    GtkListStore *servers_list;
+    GList *servers_list; /* keep array of the server structures */
     MYSQL *con;
+
+    /* extra */
+    GtkTreeView *servers_view;
+    GtkListStore *servers_store;
 };
 
-/* TODO: replace by linked list */
-struct servers_data {
+struct server {
     gchar *host;
     gchar *username;
     gchar *password;
-    gchar *s_name;
-    gint *count;
+    gchar *name;
 };
 
 struct selection_data {

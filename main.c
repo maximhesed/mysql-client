@@ -8,29 +8,29 @@ enum {
     NUM_COLS
 };
 
-GtkApplication *app;
-struct servers_data *servers;
-
 /* callbacks */
 static void application_quit(GtkWidget *widget, gpointer data);
 static void connection_open(GtkWidget *widget, gpointer data);
 static void connection_close(GtkWidget *widget, gpointer data);
 static void server_selected(GtkWidget *widget, gpointer data);
-static void window_main(GtkWidget *widget, gpointer data);
+static void window_main(GtkApplication *app, gpointer data);
 static void table_selected(GtkWidget *widget, gpointer data);
-static void data_free(GtkWidget *widget, gpointer data);
+static void data_free_cb(GtkWidget *widget, gpointer data);
+static void list_free_cb(GtkWidget *widget, gpointer data);
 
 /* direct calls */
-static void           connection_terminate(MYSQL *con);
-static GtkWidget *    servers_view_create(GtkListStore *store);
-static void           server_add_to_list(GtkListStore **store, const gchar *s_name);
-static void           window_databases(MYSQL *con);
-static void           window_table(MYSQL *con, const gchar *tb_name);
+static void connection_terminate(MYSQL *con);
+static GtkWidget * servers_view_create(GtkListStore *store);
+static void server_add_to_list(GtkListStore **store, const gchar *s_name);
+static void window_databases(GtkApplication *app, MYSQL *con);
+static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name);
 static GtkTreeModel * databases_get(MYSQL *con);
-static GtkWidget *    databases_view_create(MYSQL *con);
+static GtkWidget * databases_view_create(MYSQL *con);
 
 static void application_quit(GtkWidget *widget, gpointer data)
 {
+    GtkApplication *app = data;
+
     /* close all opened windows */
     GList *list = gtk_application_get_windows(app);
     GList *head = list;
@@ -47,6 +47,8 @@ static void application_quit(GtkWidget *widget, gpointer data)
 
 int main(int argc, char *argv[])
 {
+    GtkApplication *app;
+
     gint status;
 
     /* check MySQL version */
@@ -64,7 +66,6 @@ int main(int argc, char *argv[])
     g_signal_connect(app, "activate", G_CALLBACK(window_main), NULL);
     status = g_application_run(G_APPLICATION(app), argc, argv);
 
-    g_free(servers);
     g_object_unref(app);
 
     mysql_library_end();
@@ -76,40 +77,46 @@ int main(int argc, char *argv[])
  * Open MySQL connection.
  *
  * @data - connection_data pointer
- *
- * If servers data doesn't contain passing data,
- * then creates new active connection.
  */
 static void connection_open(GtkWidget *widget, gpointer data)
 {
+    GtkApplication *app;
+
     MYSQL *con = NULL;
 
     const gchar *host;
     const gchar *username;
     const gchar *password;
 
-    gint i;
+    GList *list;
 
-    struct connection_data *cd = data;
+    struct application_data *app_data = data;
+    struct server_data *serv_data = app_data->data;
 
-    /* get user input */
-    host = gtk_entry_get_text(GTK_ENTRY(cd->host));
-    username = gtk_entry_get_text(GTK_ENTRY(cd->username));
-    password = gtk_entry_get_text(GTK_ENTRY(cd->password));
+    app = app_data->app;
+    serv_data = app_data->data;
 
-    /* don't connect if passed data is equal servers data */
-    for (i = 0; i < *servers->count; i++) {
-        if (g_strcmp0(host, servers[i].host) == 0 &&
-            g_strcmp0(username, servers[i].username) == 0) {
-            g_print("Server already on the list.\n");
+    list = serv_data->servers_list;
 
-            return;
-        }
-    }
+    /*
+     * Server structure. It needs for appending data on the list.
+     * It's data will used for create connection when user
+     * want connect to the server from servers list.
+     */
+    struct server *serv = g_malloc0(sizeof(struct server));
+
+    /* get user input from received data */
+    host = gtk_entry_get_text(GTK_ENTRY(serv_data->host));
+    username = gtk_entry_get_text(GTK_ENTRY(serv_data->username));
+    password = gtk_entry_get_text(GTK_ENTRY(serv_data->password));
+
+    /* don't connect if passed data already located in the servers list */
+
 
     if (g_strcmp0(host, "") == 0 || g_strcmp0(username, "") == 0)
         return;
 
+    /* create new active connection */
     con = mysql_init(con);
     if (con == NULL) {
         connection_terminate(con);
@@ -117,37 +124,42 @@ static void connection_open(GtkWidget *widget, gpointer data)
         return;
     }
 
-    cd->con = con;
-
     g_print("Username: %s\n", username);
     g_print("Password: ******\n");
     g_print("Connecting to %s...\n", host);
 
-    if (mysql_real_connect(cd->con,
+    /* connecting */
+    if (mysql_real_connect(con,
             host,
             username,
             password,
             NULL, 0, NULL, 0) == NULL) {
-        connection_terminate(cd->con);
+        connection_terminate(con);
 
         return;
     }
 
-    servers[*servers->count].host = g_strdup(host);
-    servers[*servers->count].username = g_strdup(username);
-    servers[*servers->count].password = g_strdup(password);
-
-    /* reallocate servers array possibly for the new data */
-    (*servers->count)++;
-    servers = g_realloc(servers, sizeof(struct servers_data) * (*servers->count + 1));
-
-    /* to name server */
-    servers->s_name = g_strdup_printf("server%d", *servers->count);
-    server_add_to_list(&cd->servers_list, servers->s_name);
-
     g_print("Successfully connected!\n");
 
-    window_databases(cd->con);
+    /*
+     * Connection established, so pass connection
+     * handle to connection data.
+     */
+    serv_data->con = con;
+
+    /* fill server */
+    serv->host = g_strdup(host);
+    serv->username = g_strdup(username);
+    serv->password = g_strdup(password);
+    serv->name = g_strdup_printf("server%d", g_list_length(list) + 1);
+
+    /* name the server */
+    server_add_to_list(&serv_data->servers_store, serv->name);
+
+    /* append server to servers list */
+    serv_data->servers_list = g_list_append(serv_data->servers_list, serv);
+
+    window_databases(app, serv_data->con);
 }
 
 /*
@@ -172,7 +184,7 @@ static void connection_close(GtkWidget *widget, gpointer data)
  * It's callback used by application (need for wrapper), that creates
  * basic window, where user can add servers and create connections.
  */
-static void window_main(GtkWidget *widget, gpointer data)
+static void window_main(GtkApplication *app, gpointer data)
 {
     GtkWidget *window;
     GtkWidget *label_host;
@@ -181,16 +193,17 @@ static void window_main(GtkWidget *widget, gpointer data)
     GtkWidget *button_add_server;
     GtkWidget *button_connect;
     GtkWidget *grid;
-    GtkWidget *servers_view;
+    GtkWidget *view;
     GtkListStore *store;
-    GtkTreeSelection *selection;
     GdkPixbuf *icon;
 
-    struct connection_data *cd = g_malloc(sizeof(struct connection_data));
+    /* data which will passed everywhere application is needed */
+    struct application_data *app_data = g_malloc(sizeof(struct application_data));
 
-    gint count = 0;
+    struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
 
-    cd->con = NULL;
+    app_data->app = app;
+    serv_data->con = NULL;
 
     /* load icon */
     GError *error = NULL;
@@ -211,8 +224,10 @@ static void window_main(GtkWidget *widget, gpointer data)
     gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free), cd);
-    g_signal_connect(window, "destroy", G_CALLBACK(application_quit), NULL);
+    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), app_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(list_free_cb), serv_data->servers_list);
+    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), serv_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(application_quit), app);
 
     /* hang a grid */
     grid = gtk_grid_new();
@@ -230,51 +245,49 @@ static void window_main(GtkWidget *widget, gpointer data)
     gtk_label_set_xalign(GTK_LABEL(label_password), 0);
 
     /* entries */
-    cd->host = gtk_entry_new();
-    cd->username = gtk_entry_new();
-    cd->password = gtk_entry_new();
+    serv_data->host = gtk_entry_new();
+    serv_data->username = gtk_entry_new();
+    serv_data->password = gtk_entry_new();
 
-    gtk_entry_set_max_length(GTK_ENTRY(cd->host), 16);
-    gtk_entry_set_max_length(GTK_ENTRY(cd->username), 32);
-    gtk_entry_set_max_length(GTK_ENTRY(cd->password), 32);
+    gtk_entry_set_max_length(GTK_ENTRY(serv_data->host), 16);
+    gtk_entry_set_max_length(GTK_ENTRY(serv_data->username), 32);
+    gtk_entry_set_max_length(GTK_ENTRY(serv_data->password), 32);
 
-    gtk_entry_set_visibility(GTK_ENTRY(cd->password), FALSE);
-    gtk_entry_set_invisible_char(GTK_ENTRY(cd->password), L'•');
+    gtk_entry_set_visibility(GTK_ENTRY(serv_data->password), FALSE);
+    gtk_entry_set_invisible_char(GTK_ENTRY(serv_data->password), L'•');
 
     /* TODO: Add servers popup menu. */
     /* create a servers list */
-    servers = g_malloc(sizeof(struct servers_data));
-
     store = gtk_list_store_new(NUM_COLS, G_TYPE_STRING);
-    cd->servers_list = store;
 
-    servers->count = &count;
+    view = servers_view_create(store);
+    gtk_widget_set_can_focus(view, FALSE);
 
-    servers_view = servers_view_create(store);
-    gtk_widget_set_can_focus(servers_view, FALSE);
+    serv_data->servers_view = GTK_TREE_VIEW(view);
+    serv_data->servers_store = store;
 
-    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(servers_view));
+    app_data->data = serv_data;
 
     /* button "Add server" */
     button_add_server = gtk_button_new_with_label("Add server");
 
-    g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), cd);
+    g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), app_data);
 
     /* button "Connect" */
     button_connect = gtk_button_new_with_label("Connect");
 
-    g_signal_connect(button_connect, "clicked", G_CALLBACK(server_selected), selection);
+    g_signal_connect(button_connect, "clicked", G_CALLBACK(server_selected), app_data);
 
     /* place widgets onto the grid */
-    gtk_grid_attach(GTK_GRID(grid), label_host,        0, 0,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_username,    0, 1,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_password,    0, 2,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), cd->host,          1, 0,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), cd->username,      1, 1,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), cd->password,      1, 2,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_host, 0, 0,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->host, 1, 0,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->username, 1, 1,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->password, 1, 2,  1, 1);
     gtk_grid_attach(GTK_GRID(grid), button_add_server, 0, 3,  2, 1);
-    gtk_grid_attach(GTK_GRID(grid), servers_view,      2, 0, 15, 3);
-    gtk_grid_attach(GTK_GRID(grid), button_connect,    2, 3, 15, 1);
+    gtk_grid_attach(GTK_GRID(grid), view, 2, 0, 15, 3);
+    gtk_grid_attach(GTK_GRID(grid), button_connect, 2, 3, 15, 1);
 
     gtk_widget_show_all(window);
 
@@ -291,9 +304,20 @@ static void window_main(GtkWidget *widget, gpointer data)
  *
  * Simple callback that allow easy and rapidly free anything little.
  */
-static void data_free(GtkWidget *widget, gpointer data)
+static void data_free_cb(GtkWidget *widget, gpointer data)
 {
     g_free(data);
+}
+
+static void list_free_cb(GtkWidget *widget, gpointer data)
+{
+    GList *list = data;
+    GList *tmp = list;
+
+    while (tmp != NULL) {
+        tmp = list, list = list->next;
+        g_free(tmp->data);
+    }
 }
 
 /*
@@ -303,7 +327,7 @@ static void data_free(GtkWidget *widget, gpointer data)
  *
  * Creates window which contain databases extracted from the connection handler.
  */
-static void window_databases(MYSQL *con)
+static void window_databases(GtkApplication *app, MYSQL *con)
 {
     GtkWidget *window;
     GtkWidget *view;
@@ -312,7 +336,10 @@ static void window_databases(MYSQL *con)
     GtkWidget *button_disconnect;
     GtkWidget *button_open;
 
+    struct application_data *app_data = g_malloc(sizeof(struct application_data));
     struct selection_data *sel_data = g_malloc(sizeof(struct selection_data));
+
+    app_data->app = app;
 
     /* create a window */
     window = gtk_application_window_new(app);
@@ -322,7 +349,8 @@ static void window_databases(MYSQL *con)
     gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
     g_signal_connect(window, "destroy", G_CALLBACK(connection_close), con);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free), sel_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), app_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), sel_data);
 
     /* vertical oriented box */
     vbox = gtk_vbox_new(FALSE, 2);
@@ -346,7 +374,9 @@ static void window_databases(MYSQL *con)
     sel_data->selection = selection;
     sel_data->con = con;
 
-    g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected), sel_data);
+    app_data->data = sel_data;
+
+    g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected), app_data);
 
     gtk_box_pack_start(GTK_BOX(vbox), view, TRUE, TRUE, 1);
     gtk_box_pack_start(GTK_BOX(vbox), button_disconnect, FALSE, FALSE, 1);
@@ -365,7 +395,7 @@ static void window_databases(MYSQL *con)
  *
  * Creates window which contain data from selected database's table.
  */
-static void window_table(MYSQL *con, const gchar *tb_name)
+static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
     GtkWidget *window;
     GtkWidget *grid;
@@ -452,6 +482,7 @@ static void window_table(MYSQL *con, const gchar *tb_name)
  */
 static void table_selected(GtkWidget *widget, gpointer data)
 {
+    GtkApplication *app;
     GtkTreeSelection *selection;
     GtkTreeModel *model;
     GtkTreeIter iter;
@@ -460,8 +491,10 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
     MYSQL *con = NULL;
 
-    struct selection_data *sel_data = data;
+    struct application_data *app_data = data;
+    struct selection_data *sel_data = app_data->data;
 
+    app = app_data->app;
     selection = sel_data->selection;
     con = sel_data->con;
 
@@ -493,7 +526,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
             connection_terminate(con);
 
         gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
-        window_table(con, value);
+        window_table(app, con, value);
 
         g_free(value);
         g_free(cmd);
@@ -642,13 +675,14 @@ static GtkWidget * servers_view_create(GtkListStore *store)
 /*
  * Server selection handler.
  *
- * @data - GtkTreeSelection *selection
+ * @data - connection_data pointer
  *
  * Handles selected server and create new connection.
  */
 static void server_selected(GtkWidget *widget, gpointer data)
 {
-    GtkTreeSelection *selection = data;
+    GtkApplication *app;
+    GtkTreeSelection *selection;
     GtkTreeModel *model;
     GtkTreeIter iter;
     GtkTreePath *path;
@@ -657,9 +691,13 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
     gint *index;
 
-    gchar *host;
-    gchar *username;
-    gchar *password;
+    struct application_data *app_data = data;
+    struct server_data *serv_data = app_data->data;
+    struct server *serv;
+
+    app = app_data->app;
+
+    selection = gtk_tree_view_get_selection(serv_data->servers_view);
 
     /* TODO: Use gtk_tree_selection_get_selected_rows(). */
     if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
@@ -679,14 +717,13 @@ static void server_selected(GtkWidget *widget, gpointer data)
         return;
     }
 
-    host = g_strdup(servers[index[0]].host);
-    username = g_strdup(servers[index[0]].username);
-    password = g_strdup(servers[index[0]].password);
+    /* get list data placed by index to the server structure */
+    serv = g_list_nth_data(serv_data->servers_list, index[0]);
 
     if (mysql_real_connect(con,
-            host,
-            username,
-            password,
+            serv->host,
+            serv->username,
+            serv->password,
             NULL, 0, NULL, 0) == NULL) {
         connection_terminate(con);
         gtk_tree_path_free(path);
@@ -694,12 +731,9 @@ static void server_selected(GtkWidget *widget, gpointer data)
         return;
     }
 
-    g_free(host);
-    g_free(username);
-    g_free(password);
     gtk_tree_path_free(path);
 
-    window_databases(con);
+    window_databases(app, con);
 }
 
 /*
