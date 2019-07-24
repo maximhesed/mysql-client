@@ -4,9 +4,9 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 
-/* data which will passed everywhere application is needed */
-struct application_data {
-    GtkApplication *app;
+/* data which will passed everywhere auxiliary object is needed */
+struct wrapped_data {
+    GObject *object;
     gpointer data;
 };
 
