@@ -3,6 +3,8 @@
 
 #include "data.h"
 
+#define RIGHT_BUTTON 3
+
 enum {
     COLUMN = 0,
     NUM_COLS
@@ -26,6 +28,68 @@ static void window_databases(GtkApplication *app, MYSQL *con);
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name);
 static GtkTreeModel * databases_get(MYSQL *con);
 static GtkWidget * databases_view_create(MYSQL *con);
+
+/* servers popup menu */
+static gboolean servers_menu_view(GtkWidget *treeview, gpointer data);
+static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpointer data);
+static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
+static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
+
+/* servers menu */
+static gboolean servers_menu_view(GtkWidget *treeview, gpointer data)
+{
+   GtkWidget *menu;
+   GtkWidget *item_rename;
+   GtkWidget *item_remove;
+
+   menu = gtk_menu_new();
+   item_rename = gtk_menu_item_new_with_label("rename");
+   item_remove = gtk_menu_item_new_with_label("remove");
+
+   g_signal_connect(item_rename, "activate", G_CALLBACK(servers_menu_item_rename), data);
+   g_signal_connect(item_remove, "activate", G_CALLBACK(servers_menu_item_remove), data);
+
+   gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_rename);
+   gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_remove);
+
+   gtk_widget_show_all(menu);
+
+   gtk_menu_popup_at_pointer(GTK_MENU(menu), NULL);
+
+   return TRUE;
+}
+
+/* servers menu handler */
+static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpointer data)
+{
+    if (ev->type == GDK_BUTTON_PRESS && ev->button == RIGHT_BUTTON) {
+        GtkTreeSelection *selection;
+        GtkTreeModel *model;
+        GtkTreeIter iter;
+
+        selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeview));
+
+        if (gtk_tree_selection_get_selected(selection, &model, &iter)) {
+            servers_menu_view(treeview, data);
+
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+/* rename selected item from servers list */
+static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
+{
+
+}
+
+/* remove selected item(s) from servers list */
+static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
+{
+
+}
 
 static void application_quit(GtkWidget *widget, gpointer data)
 {
@@ -52,7 +116,7 @@ int main(int argc, char *argv[])
     gint status;
 
     /* check MySQL version */
-    /*g_print("MySQL client version: %s\n", mysql_get_client_info());*/
+    g_print("MySQL client version: %s\n", mysql_get_client_info());
 
     /* MySQL library initialization */
     if (mysql_library_init(0, NULL, NULL)) {
@@ -82,29 +146,23 @@ static void connection_open(GtkWidget *widget, gpointer data)
 {
     GtkApplication *app;
 
+    GList *list;
+    GList *tmp;
+
     MYSQL *con = NULL;
 
     const gchar *host;
     const gchar *username;
     const gchar *password;
 
-    GList *list;
-    GList *tmp;
-
     struct application_data *app_data = data;
     struct server_data *serv_data = app_data->data;
+    struct server *serv = g_malloc0(sizeof(struct server));
 
     app = app_data->app;
     serv_data = app_data->data;
 
     list = serv_data->servers_list;
-
-    /*
-     * Server structure. It needs for appending data on the list.
-     * It's data will used for create connection when user
-     * want connect to the server from servers list.
-     */
-    struct server *serv = g_malloc0(sizeof(struct server));
 
     /* get user input from received data */
     host = gtk_entry_get_text(GTK_ENTRY(serv_data->host));
@@ -123,6 +181,8 @@ static void connection_open(GtkWidget *widget, gpointer data)
 
             return;
         }
+
+        tmp = tmp->next;
     }
 
     if (g_strcmp0(host, "") == 0 || g_strcmp0(username, "") == 0)
@@ -154,8 +214,8 @@ static void connection_open(GtkWidget *widget, gpointer data)
     g_print("Successfully connected!\n");
 
     /*
-     * Connection established, so pass connection
-     * handle to connection data.
+     * Connection established here,
+     * so pass connection handle into connection data.
      */
     serv_data->con = con;
 
@@ -165,10 +225,10 @@ static void connection_open(GtkWidget *widget, gpointer data)
     serv->password = g_strdup(password);
     serv->name = g_strdup_printf("server%d", g_list_length(list) + 1);
 
-    /* name the server */
+    /* to name the server */
     server_add_to_list(&serv_data->servers_store, serv->name);
 
-    /* append server to servers list */
+    /* append the server to the servers list */
     serv_data->servers_list = g_list_append(serv_data->servers_list, serv);
 
     window_databases(app, serv_data->con);
@@ -209,17 +269,15 @@ static void window_main(GtkApplication *app, gpointer data)
     GtkListStore *store;
     GdkPixbuf *icon;
 
-    /* data which will passed everywhere application is needed */
-    struct application_data *app_data = g_malloc(sizeof(struct application_data));
+    GError *error = NULL;
 
+    struct application_data *app_data = g_malloc(sizeof(struct application_data));
     struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
 
     app_data->app = app;
     serv_data->con = NULL;
 
     /* load icon */
-    GError *error = NULL;
-
     icon = gdk_pixbuf_new_from_file("icon.png", &error);
     if (!icon) {
         g_print("Failed to load application icon!\n");
@@ -269,12 +327,14 @@ static void window_main(GtkApplication *app, gpointer data)
     gtk_entry_set_visibility(GTK_ENTRY(serv_data->password), FALSE);
     gtk_entry_set_invisible_char(GTK_ENTRY(serv_data->password), L'•');
 
-    /* TODO: Add servers popup menu. */
     /* create a servers list */
     store = gtk_list_store_new(NUM_COLS, G_TYPE_STRING);
 
     view = servers_view_create(store);
     gtk_widget_set_can_focus(view, FALSE);
+
+    g_signal_connect(view, "button-press-event", G_CALLBACK(servers_menu_call), NULL);
+    g_signal_connect(view, "popup-menu", G_CALLBACK(servers_menu_view), NULL);
 
     serv_data->servers_view = GTK_TREE_VIEW(view);
     serv_data->servers_store = store;
@@ -293,12 +353,12 @@ static void window_main(GtkApplication *app, gpointer data)
 
     /* place widgets onto the grid */
     gtk_grid_attach(GTK_GRID(grid), label_host, 0, 0,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->host, 1, 0,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->username, 1, 1,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->password, 1, 2,  1, 1);
-    gtk_grid_attach(GTK_GRID(grid), button_add_server, 0, 3,  2, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->host, 1, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->username, 1, 1, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), serv_data->password, 1, 2, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), button_add_server, 0, 3, 2, 1);
     gtk_grid_attach(GTK_GRID(grid), view, 2, 0, 15, 3);
     gtk_grid_attach(GTK_GRID(grid), button_connect, 2, 3, 15, 1);
 
@@ -322,6 +382,13 @@ static void free_data(GtkWidget *widget, gpointer data)
     g_free(data);
 }
 
+/*
+ * Free servers list.
+ *
+ * @data - servers list pointer
+ *
+ * Frees servers list and data inside it.
+ */
 static void free_servers_list(GtkWidget *widget, gpointer data)
 {
     GList *list = data;
@@ -343,10 +410,9 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
     g_list_free(list);
 }
 
+/* TODO: make window is scrolling */
 /*
  * Create databases window.
- *
- * @con - MySQL handler
  *
  * Creates window which contain databases extracted from the connection handler.
  */
@@ -408,12 +474,11 @@ static void window_databases(GtkApplication *app, MYSQL *con)
     gtk_widget_show_all(window);
 }
 
-/* TODO: Replace by scrolling window. */
-/* TODO: Make table appearance better. */
+/* TODO: make window is scrolling */
+/* TODO: make table appearance better */
 /*
  * Show table data.
  *
- * @con - MySQL handler
  * @tb_name - name of the table which will be displayed
  *
  * Creates window which contain data from selected database's table.
@@ -743,6 +808,10 @@ static void server_selected(GtkWidget *widget, gpointer data)
     /* get list data placed by index to the server structure */
     serv = g_list_nth_data(serv_data->servers_list, index[0]);
 
+    g_print("Username: %s\n", serv->username);
+    g_print("Password: ******\n");
+    g_print("Connecting to %s...\n", serv->host);
+
     if (mysql_real_connect(con,
             serv->host,
             serv->username,
@@ -753,6 +822,8 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
         return;
     }
+
+    g_print("Successfully connected!\n");
 
     gtk_tree_path_free(path);
 

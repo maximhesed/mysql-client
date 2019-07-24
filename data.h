@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 
+/* data which will passed everywhere application is needed */
 struct application_data {
     GtkApplication *app;
     gpointer data;
@@ -21,6 +22,11 @@ struct server_data {
     GtkListStore *servers_store;
 };
 
+/*
+ * Server structure. It needs for appending data on the list.
+ * It's data will used for create connection when user
+ * want connect to the server from servers list.
+ */
 struct server {
     gchar *host;
     gchar *username;
