@@ -15,8 +15,8 @@ static void connection_close(GtkWidget *widget, gpointer data);
 static void server_selected(GtkWidget *widget, gpointer data);
 static void window_main(GtkApplication *app, gpointer data);
 static void table_selected(GtkWidget *widget, gpointer data);
-static void data_free_cb(GtkWidget *widget, gpointer data);
-static void list_free_cb(GtkWidget *widget, gpointer data);
+static void free_data(GtkWidget *widget, gpointer data);
+static void free_servers_list(GtkWidget *widget, gpointer data);
 
 /* direct calls */
 static void connection_terminate(MYSQL *con);
@@ -89,6 +89,7 @@ static void connection_open(GtkWidget *widget, gpointer data)
     const gchar *password;
 
     GList *list;
+    GList *tmp;
 
     struct application_data *app_data = data;
     struct server_data *serv_data = app_data->data;
@@ -111,7 +112,18 @@ static void connection_open(GtkWidget *widget, gpointer data)
     password = gtk_entry_get_text(GTK_ENTRY(serv_data->password));
 
     /* don't connect if passed data already located in the servers list */
+    tmp = serv_data->servers_list;
 
+    while (tmp != NULL) {
+        struct server *serv = tmp->data;
+
+        if ((g_strcmp0(host, serv->host) == 0) &&
+            (g_strcmp0(username, serv->username) == 0)) {
+            g_print("This server has already added on the list.\n");
+
+            return;
+        }
+    }
 
     if (g_strcmp0(host, "") == 0 || g_strcmp0(username, "") == 0)
         return;
@@ -224,9 +236,10 @@ static void window_main(GtkApplication *app, gpointer data)
     gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), app_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(list_free_cb), serv_data->servers_list);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), serv_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(free_data), app_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(free_servers_list),
+        serv_data->servers_list);
+    g_signal_connect(window, "destroy", G_CALLBACK(free_data), serv_data);
     g_signal_connect(window, "destroy", G_CALLBACK(application_quit), app);
 
     /* hang a grid */
@@ -304,20 +317,30 @@ static void window_main(GtkApplication *app, gpointer data)
  *
  * Simple callback that allow easy and rapidly free anything little.
  */
-static void data_free_cb(GtkWidget *widget, gpointer data)
+static void free_data(GtkWidget *widget, gpointer data)
 {
     g_free(data);
 }
 
-static void list_free_cb(GtkWidget *widget, gpointer data)
+static void free_servers_list(GtkWidget *widget, gpointer data)
 {
     GList *list = data;
     GList *tmp = list;
 
+    struct server *serv;
+
     while (tmp != NULL) {
         tmp = list, list = list->next;
-        g_free(tmp->data);
+        serv = tmp->data;
+
+        g_free(serv->host);
+        g_free(serv->username);
+        g_free(serv->password);
+        g_free(serv->name);
+        g_free(serv);
     }
+
+    g_list_free(list);
 }
 
 /*
@@ -349,8 +372,8 @@ static void window_databases(GtkApplication *app, MYSQL *con)
     gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
     g_signal_connect(window, "destroy", G_CALLBACK(connection_close), con);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), app_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(data_free_cb), sel_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(free_data), app_data);
+    g_signal_connect(window, "destroy", G_CALLBACK(free_data), sel_data);
 
     /* vertical oriented box */
     vbox = gtk_vbox_new(FALSE, 2);
