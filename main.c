@@ -5,6 +5,11 @@
 
 #define RIGHT_BUTTON 3
 
+/* TODO: It's temporary solution, while i seek the way make independent
+ * size window, but so that its size didn't be very large. */
+#define WINDOW_TABLE_X 300
+#define WINDOW_TABLE_Y 500
+
 enum {
 	COLUMN = 0,
 	NUM_COLS
@@ -533,10 +538,10 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 	g_list_free(list);
 }
 
-/* TODO: replace window with scrolling window */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
 	GtkWidget *window;
+	GtkWidget *scroll_window;
 	GtkWidget *view;
 	GtkTreeSelection *selection;
 	GtkWidget *vbox;
@@ -559,12 +564,16 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), sel_data);
 
+	/* create a scrolled window */
+	scroll_window = gtk_scrolled_window_new(NULL, NULL);
+
 	/* vertical oriented box */
 	vbox = gtk_vbox_new(FALSE, 2);
 	gtk_container_add(GTK_CONTAINER(window), vbox);
 
 	/* tree view */
 	view = databases_view_create(con);
+	gtk_container_add(GTK_CONTAINER(scroll_window), view);
 
 	/* tree selection */
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
@@ -585,18 +594,18 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 
 	g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected), wrap_data);
 
-	gtk_box_pack_start(GTK_BOX(vbox), view, TRUE, TRUE, 1);
+	gtk_box_pack_start(GTK_BOX(vbox), scroll_window, TRUE, TRUE, 1);
 	gtk_box_pack_start(GTK_BOX(vbox), button_disconnect, FALSE, FALSE, 1);
 	gtk_box_pack_start(GTK_BOX(vbox), button_open, FALSE, FALSE, 1);
 
 	gtk_widget_show_all(window);
 }
 
-/* TODO: replace window with scrolling window */
 /* TODO: make table appearance better */
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
 	GtkWidget *window;
+	GtkWidget *scroll_window;
 	GtkWidget *grid;
 	GtkWidget *label;
 
@@ -612,6 +621,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	/* create a window */
 	window = gtk_application_window_new(app);
+	gtk_window_resize(GTK_WINDOW(window), WINDOW_TABLE_X, WINDOW_TABLE_Y);
 	gtk_window_set_title(GTK_WINDOW(window), tb_name);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_move(GTK_WINDOW(window), 50, 50);
@@ -619,9 +629,13 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
 
+	/* create a scrolled window */
+	scroll_window = gtk_scrolled_window_new(NULL, NULL);
+	gtk_container_add(GTK_CONTAINER(window), scroll_window);
+
 	/* hang a grid */
 	grid = gtk_grid_new();
-	gtk_container_add(GTK_CONTAINER(window), grid);
+	gtk_container_add(GTK_CONTAINER(scroll_window), grid);
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
 	gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
 
