@@ -68,9 +68,23 @@ static gboolean servers_menu_view(gpointer data)
 static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpointer data)
 {
 	if (ev->type == GDK_BUTTON_PRESS && ev->button == RIGHT_BUTTON) {
-		servers_menu_view(data);
+		GtkTreeSelection *selection;
+		GtkTreeModel *model;
 
-		return TRUE;
+		struct wrapped_data *wrap_data = data;
+		struct server_data *serv_data = wrap_data->data;
+
+		GList *rows = NULL;
+
+		selection = gtk_tree_view_get_selection(serv_data->servers_view);
+		model = gtk_tree_view_get_model(serv_data->servers_view);
+
+		rows = gtk_tree_selection_get_selected_rows(selection, &model);
+		if (rows) {
+			servers_menu_view(data);
+
+			return TRUE;
+		}
 	}
 
 	return FALSE;
@@ -538,6 +552,7 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 	g_list_free(list);
 }
 
+/* TODO: open multiple tables */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
 	GtkWidget *window;
@@ -861,6 +876,7 @@ static GtkWidget * servers_view_create(GtkListStore *store)
 	return view;
 }
 
+/* TODO: open multiple servers */
 static void server_selected(GtkWidget *widget, gpointer data)
 {
 	GtkApplication *app;
