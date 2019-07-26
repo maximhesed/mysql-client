@@ -880,6 +880,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
 	app = GTK_APPLICATION(wrap_data->object);
 
 	selection = gtk_tree_view_get_selection(serv_data->servers_view);
+	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
 
 	/* TODO: Use gtk_tree_selection_get_selected_rows(). */
 	if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
