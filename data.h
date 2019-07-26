@@ -6,20 +6,20 @@
 
 /* data which will passed everywhere auxiliary object is needed */
 struct wrapped_data {
-    GObject *object;
-    gpointer data;
+	GObject *object;
+	gpointer data;
 };
 
 struct server_data {
-    GtkWidget *host;
-    GtkWidget *username;
-    GtkWidget *password;
-    GList *servers_list; /* keep array of the server structures */
-    MYSQL *con;
+	GtkWidget *host;
+	GtkWidget *username;
+	GtkWidget *password;
+	GList *servers_list; /* keep array of the server structures */
+	MYSQL *con;
 
-    /* extra */
-    GtkTreeView *servers_view;
-    GtkListStore *servers_store;
+	/* extra */
+	GtkTreeView *servers_view;
+	GtkListStore *servers_store;
 };
 
 /*
@@ -28,15 +28,15 @@ struct server_data {
  * want connect to the server from servers list.
  */
 struct server {
-    gchar *host;
-    gchar *username;
-    gchar *password;
-    gchar *name;
+	gchar *host;
+	gchar *username;
+	gchar *password;
+	gchar *name;
 };
 
 struct selection_data {
-    GtkTreeSelection *selection;
-    MYSQL *con;
+	GtkTreeSelection *selection;
+	MYSQL *con;
 };
 
 #endif /* DATA_H */
