@@ -7,8 +7,10 @@
 
 /* TODO: It's temporary solution, while i seek the way make independent
  * size window, but so that its size didn't be very large. */
-#define WINDOW_TABLE_X 300
-#define WINDOW_TABLE_Y 500
+#define WIN_DBS_X 500
+#define WIN_DBS_Y 300
+#define WIN_TBS_X 500
+#define WIN_TBS_Y 600
 
 enum {
 	COLUMN = 0,
@@ -571,7 +573,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	/* create a window */
 	window = gtk_application_window_new(app);
 	gtk_window_set_title(GTK_WINDOW(window), "Databases");
-	gtk_window_resize(GTK_WINDOW(window), 500, 300);
+	gtk_window_resize(GTK_WINDOW(window), WIN_DBS_X, WIN_DBS_Y);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
@@ -590,7 +592,6 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	view = databases_view_create(con);
 	gtk_container_add(GTK_CONTAINER(scroll_window), view);
 
-	/* tree selection */
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
 
 	/* button "Disconnect" */
@@ -636,7 +637,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	/* create a window */
 	window = gtk_application_window_new(app);
-	gtk_window_resize(GTK_WINDOW(window), WINDOW_TABLE_X, WINDOW_TABLE_Y);
+	gtk_window_resize(GTK_WINDOW(window), WIN_TBS_X, WIN_TBS_Y);
 	gtk_window_set_title(GTK_WINDOW(window), tb_name);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_move(GTK_WINDOW(window), 50, 50);
@@ -706,6 +707,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
 	GtkApplication *app;
 	GtkTreeSelection *selection;
 	GtkTreeModel *model;
+	GtkTreePath *path;
 	GtkTreeIter iter;
 	GtkTreeIter child;
 	GtkTreeIter parent;
@@ -714,6 +716,8 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
 	struct wrapped_data *wrap_data = data;
 	struct selection_data *sel_data = wrap_data->data;
+
+	gint depth;
 
 	app = GTK_APPLICATION(wrap_data->object);
 	selection = sel_data->selection;
@@ -725,31 +729,42 @@ static void table_selected(GtkWidget *widget, gpointer data)
 		return;
 	}
 
-	/* TODO: If database is empty? */
-	/* if 'iter' hasn't children(s) (it's table), so show table */
+	path = gtk_tree_model_get_path(model, &iter);
+	depth = gtk_tree_path_get_depth(path);
+
 	if (!gtk_tree_model_iter_children(model, &child, &iter)) {
-		/* Maybe this table from another database,
-		 * so use its database just in case. */
+		if (depth > 1) {
+			/* It's table. Maybe it belongs another database,
+			 * so use its database just in case. */
 
-		gchar *value;
-		gchar *cmd;
+			gchar *value;
+			gchar *cmd;
 
-		if (!gtk_tree_model_iter_parent(model, &parent, &iter)) {
-			/* something went wrong */
+			if (!gtk_tree_model_iter_parent(model, &parent, &iter)) {
+				/* something went wrong */
+				return;
+			}
+
+			gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
+
+			cmd = g_strdup_printf("use %s", value);
+			if (mysql_query(con, cmd))
+				connection_terminate(con);
+
+			gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
+			window_table(app, con, value);
+
+			g_free(value);
+			g_free(cmd);
+			gtk_tree_path_free(path);
+		} else {
+			/* it's empty database */
+			g_print("No selected tables.\n");
+
+			gtk_tree_path_free(path);
+
 			return;
 		}
-
-		gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
-
-		cmd = g_strdup_printf("use %s", value);
-		if (mysql_query(con, cmd))
-			connection_terminate(con);
-
-		gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
-		window_table(app, con, value);
-
-		g_free(value);
-		g_free(cmd);
 	} else
 		g_print("No selected tables.\n");
 }
