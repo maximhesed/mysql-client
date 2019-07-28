@@ -38,7 +38,7 @@ static GtkWidget * databases_view_create(MYSQL *con);
 
 /* servers popup menu */
 static gboolean servers_menu_view(gpointer data);
-static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpointer data);
+static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data);
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
 
@@ -67,8 +67,10 @@ static gboolean servers_menu_view(gpointer data)
 }
 
 /* servers menu handler */
-static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpointer data)
+static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data)
 {
+	(void) widget;
+
 	if (ev->type == GDK_BUTTON_PRESS && ev->button == RIGHT_BUTTON) {
 		GtkTreeSelection *selection;
 		GtkTreeModel *model;
@@ -94,6 +96,8 @@ static gboolean servers_menu_call(GtkWidget *treeview, GdkEventButton *ev, gpoin
 
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkWidget *dialog;
 	GtkWidget *content_area;
 	GtkWidget *entry;
@@ -165,6 +169,8 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 /* remove selected item(s) from servers list */
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkWidget *dialog;
 	GtkWindow *window;
 	GtkListStore *store;
@@ -257,6 +263,8 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 
 static void application_quit(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkApplication *app = data;
 
 	/* close all opened windows */
@@ -303,6 +311,8 @@ int main(int argc, char *argv[])
 
 static void connection_open(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkApplication *app;
 
 	GList *tmp;
@@ -391,6 +401,8 @@ static void connection_open(GtkWidget *widget, gpointer data)
 
 static void connection_close(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	MYSQL *con = data;
 
 	if (con != NULL) {
@@ -402,6 +414,8 @@ static void connection_close(GtkWidget *widget, gpointer data)
 
 static void window_main(GtkApplication *app, gpointer data)
 {
+	(void) data;
+
 	GtkWidget *window;
 	GtkWidget *label_host;
 	GtkWidget *label_username;
@@ -530,11 +544,15 @@ static void window_main(GtkApplication *app, gpointer data)
 
 static void free_data(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	g_free(data);
 }
 
 static void free_servers_list(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GList *list = data;
 	GList *tmp = list;
 
@@ -590,6 +608,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 
 	/* tree view */
 	view = databases_view_create(con);
+	gtk_tree_view_set_fixed_height_mode(GTK_TREE_VIEW(view), TRUE);
 	gtk_container_add(GTK_CONTAINER(scroll_window), view);
 
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
@@ -704,6 +723,8 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 static void table_selected(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkApplication *app;
 	GtkTreeSelection *selection;
 	GtkTreeModel *model;
@@ -780,19 +801,6 @@ static GtkTreeModel * databases_get(MYSQL *con)
 	MYSQL_ROW dbs_row; /* database names */
 	MYSQL_ROW tbs_row; /* table names */
 
-	/* It's old code. Simple user hasn't access to some databases
-	 * (with the exception of "information_schema"). I gave a mark such
-	 * databases "unnecessary", because user doesn't own them. But if root
-	 * is log in, then it can't see these databases, what is wrong.
-	 * This needs to be rewrite, but not now. */
-
-	/* unnecessary database names */
-	const gchar dbs_pass_row[3][32] = {
-		"information_schema",
-		"mysql",
-		"performance_schema"
-	};
-
 	gint dbs_n;
 
 	if (mysql_query(con, "show databases"))
@@ -809,51 +817,39 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
 	/* write first row to 'dbs' */
 	while ((dbs_row = mysql_fetch_row(dbs_res))) {
-		gboolean pass;
-
 		gint i;
-		gint j;
 
 		for (i = 0; i < dbs_n; i++) {
-			pass = FALSE;
+			gchar *cmd;
 
-			for (j = 0; j < 3; j++) {
-				if (g_strcmp0(dbs_pass_row[j], dbs_row[i]) == 0)
-					pass = TRUE;
-			}
+			gtk_tree_store_append(ts, &dbs_lvl, NULL);
+			gtk_tree_store_set(ts, &dbs_lvl, COLUMN, dbs_row[i], -1);
 
-			if (!pass) {
-				gchar *cmd;
+			cmd = g_strdup_printf("use %s", dbs_row[i]);
+			if (mysql_query(con, cmd))
+				connection_terminate(con);
 
-				gtk_tree_store_append(ts, &dbs_lvl, NULL);
-				gtk_tree_store_set(ts, &dbs_lvl, COLUMN, dbs_row[i], -1);
+			if (mysql_query(con, "show tables"))
+				connection_terminate(con);
 
-				cmd = g_strdup_printf("use %s", dbs_row[i]);
-				if (mysql_query(con, cmd))
-					connection_terminate(con);
+			tbs_res = mysql_store_result(con);
 
-				if (mysql_query(con, "show tables"))
-					connection_terminate(con);
+			if (tbs_res == NULL)
+				connection_terminate(con);
 
-				tbs_res = mysql_store_result(con);
+			int tbs_n = mysql_num_fields(tbs_res);
 
-				if (tbs_res == NULL)
-					connection_terminate(con);
+			while ((tbs_row = mysql_fetch_row(tbs_res))) {
+				int i;
 
-				int tbs_n = mysql_num_fields(tbs_res);
-
-				while ((tbs_row = mysql_fetch_row(tbs_res))) {
-					int i;
-
-					for (i = 0; i < tbs_n; i++) {
-						gtk_tree_store_append(ts, &tbs_lvl, &dbs_lvl);
-						gtk_tree_store_set(ts, &tbs_lvl, COLUMN,
-							tbs_row[i], -1);
-					}
+				for (i = 0; i < tbs_n; i++) {
+					gtk_tree_store_append(ts, &tbs_lvl, &dbs_lvl);
+					gtk_tree_store_set(ts, &tbs_lvl, COLUMN,
+						tbs_row[i], -1);
 				}
-
-				g_free(cmd);
 			}
+
+			g_free(cmd);
 		}
 	}
 
@@ -894,6 +890,8 @@ static GtkWidget * servers_view_create(GtkListStore *store)
 /* TODO: open multiple servers */
 static void server_selected(GtkWidget *widget, gpointer data)
 {
+	(void) widget;
+
 	GtkApplication *app;
 	GtkTreeSelection *selection;
 	GtkTreeModel *model;
@@ -931,7 +929,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
 		return;
 	}
 
-	/* get list data placed by index to the server structure */
+	/* get data, placed by index in the servers list */
 	serv = g_list_nth_data(serv_data->servers_list, index[0]);
 
 	g_print("Username: %s\n", serv->username);
@@ -966,6 +964,7 @@ static GtkWidget * databases_view_create(MYSQL *con)
 	view = gtk_tree_view_new();
 
 	col = gtk_tree_view_column_new();
+	gtk_tree_view_column_set_sizing(col, GTK_TREE_VIEW_COLUMN_FIXED);
 	gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
 
 	renderer = gtk_cell_renderer_text_new();
