@@ -12,6 +12,11 @@
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
+#define COLOR_RED "\e[0;91m"
+#define COLOR_YELLOW "\e[0;93m"
+#define COLOR_CYAN "\e[0;96m"
+#define COLOR_DEFAULT "\e[0m"
+
 enum {
 	COLUMN = 0,
 	NUM_COLS
@@ -288,11 +293,13 @@ int main(int argc, char *argv[])
 	gint status;
 
 	/* check MySQL version */
-	g_print("MySQL client version: %s\n", mysql_get_client_info());
+	g_print("%s[info]%s: MySQL client version: %s\n", COLOR_CYAN, COLOR_DEFAULT,
+		mysql_get_client_info());
 
 	/* MySQL library initialization */
 	if (mysql_library_init(0, NULL, NULL)) {
-		g_print("Couldn't initialize MySQL client library.\n");
+		g_print("%s[err]%s: Couldn't initialize MySQL client library.\n", COLOR_RED,
+			COLOR_DEFAULT);
 
 		return -1;
 	}
@@ -343,7 +350,8 @@ static void connection_open(GtkWidget *widget, gpointer data)
 
 		if ((g_strcmp0(host, serv->host) == 0) &&
 			(g_strcmp0(username, serv->username) == 0)) {
-			g_print("This server has already added on the list.\n");
+			g_print("%s[info]%s: This server has already added on the list.\n", COLOR_CYAN,
+				COLOR_DEFAULT);
 
 			return;
 		}
@@ -443,7 +451,7 @@ static void window_main(GtkApplication *app, gpointer data)
 	/* load icon */
 	icon = gdk_pixbuf_new_from_file("icon.png", &error);
 	if (!icon) {
-		g_print("Failed to load application icon!\n");
+		g_print("%s[err]%s: Failed to load application icon!\n", COLOR_RED, COLOR_DEFAULT);
 		g_print("%s\n", error->message);
 		g_error_free(error);
 	}
@@ -498,10 +506,8 @@ static void window_main(GtkApplication *app, gpointer data)
 
 	/* create a servers list */
 	store = gtk_list_store_new(NUM_COLS, G_TYPE_STRING);
-
 	view = servers_view_create(store);
 
-	/* put selected row(s) from view to serv_data */
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
 	gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
 
@@ -571,7 +577,6 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 	g_list_free(list);
 }
 
-/* TODO: open multiple tables */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
 	GtkWidget *window;
@@ -582,14 +587,18 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	GtkWidget *button_disconnect;
 	GtkWidget *button_open;
 
+	gchar *title;
+
 	struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
 	struct selection_data *sel_data = g_malloc(sizeof(struct selection_data));
 
 	wrap_data->object = G_OBJECT(app);
 
+	title = g_strdup_printf("Databases ('%s'@'%s')", con->user, con->host);
+
 	/* create a window */
 	window = gtk_application_window_new(app);
-	gtk_window_set_title(GTK_WINDOW(window), "Databases");
+	gtk_window_set_title(GTK_WINDOW(window), title);
 	gtk_window_resize(GTK_WINDOW(window), WIN_DBS_X, WIN_DBS_Y);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
@@ -597,6 +606,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	g_signal_connect(window, "destroy", G_CALLBACK(connection_close), con);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), sel_data);
+	g_signal_connect(window, "destroy", G_CALLBACK(free_data), title);
 
 	/* create a scrolled window */
 	scroll_window = gtk_scrolled_window_new(NULL, NULL);
@@ -611,6 +621,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	gtk_container_add(GTK_CONTAINER(scroll_window), view);
 
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+	gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
 
 	/* button "Disconnect" */
 	button_disconnect = gtk_button_new_with_label("Disconnect");
@@ -675,6 +686,9 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	cmd = g_strdup_printf("select * from `%s`", tb_name);
 	if (mysql_query(con, cmd)) {
+		g_print("%s[err]%s: Problem with access to the table '%s'.\n", COLOR_RED,
+			COLOR_DEFAULT, tb_name);
+
 		connection_error(con);
 
 		return;
@@ -730,68 +744,69 @@ static void table_selected(GtkWidget *widget, gpointer data)
 	GtkTreeSelection *selection;
 	GtkTreeModel *model;
 	GtkTreePath *path;
-	GtkTreeIter iter;
-	GtkTreeIter child;
-	GtkTreeIter parent;
+
+	GList *rows = NULL;
+	GList *tmp = NULL;
 
 	MYSQL *con = NULL;
 
 	struct wrapped_data *wrap_data = data;
 	struct selection_data *sel_data = wrap_data->data;
 
-	gint depth;
-
 	app = GTK_APPLICATION(wrap_data->object);
 	selection = sel_data->selection;
 	con = sel_data->con;
 
-	/* put selected item into the 'iter' */
-	if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
-		/* No selected nodes, strange... */
+	rows = gtk_tree_selection_get_selected_rows(selection, &model);
+	if (rows == NULL) {
+		g_print("%s[warn]%s: No selected tables.\n", COLOR_YELLOW, COLOR_DEFAULT);
+
 		return;
 	}
 
-	path = gtk_tree_model_get_path(model, &iter);
-	depth = gtk_tree_path_get_depth(path);
+	for (tmp = rows; tmp; tmp = tmp->next) {
+		path = tmp->data;
 
-	if (!gtk_tree_model_iter_children(model, &child, &iter)) {
-		if (depth > 1) {
-			/* It's table. Maybe, it belongs another database,
-			 * so use its database just in case. */
+		if (path) {
+			GtkTreeIter iter;
+			GtkTreeIter child;
+			GtkTreeIter parent;
 
-			gchar *value;
-			gchar *cmd;
+			gint depth;
 
-			if (!gtk_tree_model_iter_parent(model, &parent, &iter)) {
-				/* something went wrong */
-				gtk_tree_path_free(path);
+			depth = gtk_tree_path_get_depth(path);
 
-				return;
+			if (gtk_tree_model_get_iter(model, &iter, path)) {
+				if (!gtk_tree_model_iter_children(model, &child, &iter)) {
+					if (depth > 1) {
+						/* It's table. */
+
+						/* Maybe, it belongs another database,
+						 * so use its database just in case. */
+
+						gchar *value;
+						gchar *cmd;
+
+						if (gtk_tree_model_iter_parent(model, &parent, &iter)) {
+							gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
+
+							cmd = g_strdup_printf("use %s", value);
+							if (mysql_query(con, cmd))
+								connection_terminate(con);
+
+							gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
+							window_table(app, con, value);
+
+							g_free(value);
+							g_free(cmd);
+						}
+					}
+				}
 			}
-
-			gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
-
-			cmd = g_strdup_printf("use %s", value);
-			if (mysql_query(con, cmd))
-				connection_terminate(con);
-
-			gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
-			window_table(app, con, value);
-
-			g_free(value);
-			g_free(cmd);
-		} else {
-			/* it's empty database */
-			g_print("No selected tables.\n");
-
-			gtk_tree_path_free(path);
-
-			return;
 		}
-	} else
-		g_print("No selected tables.\n");
+	}
 
-	gtk_tree_path_free(path);
+	g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 }
 
 static GtkTreeModel * databases_get(MYSQL *con)
@@ -892,7 +907,6 @@ static GtkWidget * servers_view_create(GtkListStore *store)
 	return view;
 }
 
-/* TODO: open multiple servers */
 static void server_selected(GtkWidget *widget, gpointer data)
 {
 	(void) widget;
@@ -900,63 +914,76 @@ static void server_selected(GtkWidget *widget, gpointer data)
 	GtkApplication *app;
 	GtkTreeSelection *selection;
 	GtkTreeModel *model;
-	GtkTreeIter iter;
 	GtkTreePath *path;
+
+	GList *rows = NULL;
+	GList *tmp = NULL;
 
 	MYSQL *con = NULL;
 
-	gint *index;
-
 	struct wrapped_data *wrap_data = data;
 	struct server_data *serv_data = wrap_data->data;
-	struct server *serv;
 
 	app = GTK_APPLICATION(wrap_data->object);
 
 	selection = gtk_tree_view_get_selection(serv_data->servers_view);
-	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
 
-	/* TODO: Use gtk_tree_selection_get_selected_rows(). */
-	if (!gtk_tree_selection_get_selected(selection, &model, &iter)) {
-		g_print("No selected servers.\n");
-
-		return;
-	}
-
-	path = gtk_tree_model_get_path(model, &iter);
-	index = gtk_tree_path_get_indices(path);
-
-	con = mysql_init(con);
-	if (con == NULL) {
-		connection_terminate(con);
-		gtk_tree_path_free(path);
+	rows = gtk_tree_selection_get_selected_rows(selection, &model);
+	if (rows == NULL) {
+		g_print("%s[warn]%s: No selected servers.\n", COLOR_YELLOW, COLOR_DEFAULT);
 
 		return;
 	}
 
-	/* get data, placed by index in the servers list */
-	serv = g_list_nth_data(serv_data->servers_list, index[0]);
+	for (tmp = rows; tmp; tmp = tmp->next) {
+		path = tmp->data;
 
-	g_print("Username: %s\n", serv->username);
-	g_print("Password: ******\n");
-	g_print("Connecting to %s...\n", serv->host);
+		if (path) {
+			gint *index;
 
-	if (mysql_real_connect(con,
-			serv->host,
-			serv->username,
-			serv->password,
-			NULL, 0, NULL, 0) == NULL) {
-		connection_terminate(con);
-		gtk_tree_path_free(path);
+			struct server *serv;
 
-		return;
+			index = gtk_tree_path_get_indices(path);
+
+			con = mysql_init(con);
+			if (con == NULL) {
+				connection_terminate(con);
+
+				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
+
+				g_print("%s[err]%s: Faile to open connection!\n", COLOR_RED, COLOR_DEFAULT);
+
+				return;
+			}
+
+			/* get data, placed by index in the servers list */
+			serv = g_list_nth_data(serv_data->servers_list, index[0]);
+
+			g_print("Username: %s\n", serv->username);
+			g_print("Password: ******\n");
+			g_print("Connecting to %s...\n", serv->host);
+
+			if (mysql_real_connect(con,
+					serv->host,
+					serv->username,
+					serv->password,
+					NULL, 0, NULL, 0) == NULL) {
+				connection_terminate(con);
+
+				g_print("%s[err]%s: Connection failed!\n", COLOR_RED, COLOR_DEFAULT);
+
+				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
+
+				continue;
+			} else {
+				g_print("Successfully connected!\n");
+
+				window_databases(app, con);
+			}
+		}
 	}
 
-	g_print("Successfully connected!\n");
-
-	gtk_tree_path_free(path);
-
-	window_databases(app, con);
+	g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 }
 
 static GtkWidget * databases_view_create(MYSQL *con)
