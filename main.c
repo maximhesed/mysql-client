@@ -7,8 +7,8 @@
 
 /* TODO: It's temporary solution, while i seek the way make independent
  * size window, but so that its size didn't be very large. */
-#define WIN_DBS_X 500
-#define WIN_DBS_Y 300
+#define WIN_DBS_X 650
+#define WIN_DBS_Y 550
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
@@ -29,6 +29,7 @@ static void free_servers_list(GtkWidget *widget, gpointer data);
 
 /* direct calls */
 static void connection_terminate(MYSQL *con);
+static void connection_error(MYSQL *con);
 static GtkWidget * servers_view_create(GtkListStore *store);
 static void servers_store_add_server(GtkListStore **store, const gchar *s_name);
 static void window_databases(GtkApplication *app, MYSQL *con);
@@ -37,13 +38,13 @@ static GtkTreeModel * databases_get(MYSQL *con);
 static GtkWidget * databases_view_create(MYSQL *con);
 
 /* servers popup menu */
-static gboolean servers_menu_view(gpointer data);
+static void servers_menu_view(gpointer data);
 static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data);
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
 
 /* servers menu */
-static gboolean servers_menu_view(gpointer data)
+static void servers_menu_view(gpointer data)
 {
 	GtkWidget *menu;
 	GtkWidget *item_rename;
@@ -62,8 +63,6 @@ static gboolean servers_menu_view(gpointer data)
 	gtk_widget_show_all(menu);
 
 	gtk_menu_popup_at_pointer(GTK_MENU(menu), NULL);
-
-	return TRUE;
 }
 
 /* servers menu handler */
@@ -94,6 +93,7 @@ static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointe
 	return FALSE;
 }
 
+/* rename selected item from the servers list */
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 {
 	(void) widget;
@@ -166,7 +166,7 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 	gtk_widget_destroy(dialog);
 }
 
-/* remove selected item(s) from servers list */
+/* remove selected item(s) from the servers list */
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 {
 	(void) widget;
@@ -453,11 +453,10 @@ static void window_main(GtkApplication *app, gpointer data)
 	gtk_window_set_title(GTK_WINDOW(window), "Login");
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_set_icon(GTK_WINDOW(window), icon);
+	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
 	/* TODO: for some reason, window remains is resizable */
 	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
-
-	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data_a);
@@ -674,14 +673,16 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
 	gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
 
-	/* make a request */
 	cmd = g_strdup_printf("select * from `%s`", tb_name);
-	if (mysql_query(con, cmd))
-		connection_terminate(con);
+	if (mysql_query(con, cmd)) {
+		connection_error(con);
+
+		return;
+	}
 
 	vls_res = mysql_store_result(con);
 
-	/* fill column names */
+	/* fill the columns names */
 	x = 0;
 	y = 0;
 
@@ -696,7 +697,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	x = 0;
 	y++;
 
-	/* fill column values */
+	/* fill the columns values */
 	vls_n = mysql_num_fields(vls_res);
 
 	while ((vls_row = mysql_fetch_row(vls_res))) {
@@ -755,7 +756,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
 	if (!gtk_tree_model_iter_children(model, &child, &iter)) {
 		if (depth > 1) {
-			/* It's table. Maybe it belongs another database,
+			/* It's table. Maybe, it belongs another database,
 			 * so use its database just in case. */
 
 			gchar *value;
@@ -763,6 +764,8 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
 			if (!gtk_tree_model_iter_parent(model, &parent, &iter)) {
 				/* something went wrong */
+				gtk_tree_path_free(path);
+
 				return;
 			}
 
@@ -777,7 +780,6 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
 			g_free(value);
 			g_free(cmd);
-			gtk_tree_path_free(path);
 		} else {
 			/* it's empty database */
 			g_print("No selected tables.\n");
@@ -788,6 +790,8 @@ static void table_selected(GtkWidget *widget, gpointer data)
 		}
 	} else
 		g_print("No selected tables.\n");
+
+	gtk_tree_path_free(path);
 }
 
 static GtkTreeModel * databases_get(MYSQL *con)
@@ -798,8 +802,8 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
 	MYSQL_RES *dbs_res;
 	MYSQL_RES *tbs_res;
-	MYSQL_ROW dbs_row; /* database names */
-	MYSQL_ROW tbs_row; /* table names */
+	MYSQL_ROW dbs_row; /* databases names */
+	MYSQL_ROW tbs_row; /* tables names */
 
 	gint dbs_n;
 
@@ -812,7 +816,7 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
 	ts = gtk_tree_store_new(NUM_COLS, G_TYPE_STRING);
 
-	/* get number of fields from result */
+	/* get count of fields from the result */
 	dbs_n = mysql_num_fields(dbs_res);
 
 	/* write first row to 'dbs' */
@@ -821,6 +825,8 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
 		for (i = 0; i < dbs_n; i++) {
 			gchar *cmd;
+
+			gint tbs_n;
 
 			gtk_tree_store_append(ts, &dbs_lvl, NULL);
 			gtk_tree_store_set(ts, &dbs_lvl, COLUMN, dbs_row[i], -1);
@@ -833,19 +839,18 @@ static GtkTreeModel * databases_get(MYSQL *con)
 				connection_terminate(con);
 
 			tbs_res = mysql_store_result(con);
-
 			if (tbs_res == NULL)
 				connection_terminate(con);
 
-			int tbs_n = mysql_num_fields(tbs_res);
+			tbs_n = mysql_num_fields(tbs_res);
 
 			while ((tbs_row = mysql_fetch_row(tbs_res))) {
-				int i;
+				gint j;
 
-				for (i = 0; i < tbs_n; i++) {
+				for (j = 0; j < tbs_n; j++) {
 					gtk_tree_store_append(ts, &tbs_lvl, &dbs_lvl);
 					gtk_tree_store_set(ts, &tbs_lvl, COLUMN,
-						tbs_row[i], -1);
+						tbs_row[j], -1);
 				}
 			}
 
@@ -986,4 +991,9 @@ static void connection_terminate(MYSQL *con)
 		mysql_close(con);
 		con = NULL;
 	}
+}
+
+static void connection_error(MYSQL *con)
+{
+	g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
 }
