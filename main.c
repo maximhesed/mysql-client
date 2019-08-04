@@ -12,6 +12,7 @@
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
+/* TODO: log to file */
 #define COLOR_RED "\e[0;91m"
 #define COLOR_YELLOW "\e[0;93m"
 #define COLOR_CYAN "\e[0;96m"
@@ -90,6 +91,8 @@ static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointe
 		rows = gtk_tree_selection_get_selected_rows(selection, &model);
 		if (rows) {
 			servers_menu_view(data);
+
+			g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
 			return TRUE;
 		}
@@ -218,7 +221,7 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 		/* "turn over" list to delete items, beginning from the end */
 		rows = g_list_reverse(rows);
 
-		/* create rows refereces because safety modify tree model */
+		/* create rows refereces to safely modify tree model */
 		for (node = rows; node; node = node->next) {
 			path = node->data;
 
@@ -245,7 +248,7 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 			}
 		}
 
-		/* remove server from the servers store */
+		/* remove servers from the servers store */
 		for (node = rr_list; node; node = node->next) {
 			path = gtk_tree_row_reference_get_path(node->data);
 
@@ -335,7 +338,6 @@ static void connection_open(GtkWidget *widget, gpointer data)
 	struct server *serv = g_malloc0(sizeof(struct server));
 
 	app = GTK_APPLICATION(wrap_data->object);
-	serv_data = wrap_data->data;
 
 	/* get user input from received data */
 	host = gtk_entry_get_text(GTK_ENTRY(serv_data->host));
@@ -350,7 +352,7 @@ static void connection_open(GtkWidget *widget, gpointer data)
 
 		if ((g_strcmp0(host, serv->host) == 0) &&
 			(g_strcmp0(username, serv->username) == 0)) {
-			g_print("%s[info]%s: This server has already added on the list.\n", COLOR_CYAN,
+			g_print("%s[info]%s: This server is already added on the list.\n", COLOR_CYAN,
 				COLOR_DEFAULT);
 
 			return;
@@ -438,12 +440,8 @@ static void window_main(GtkApplication *app, gpointer data)
 
 	GError *error = NULL;
 
-	/* object is application */
 	struct wrapped_data *wrap_data_a = g_malloc(sizeof(struct wrapped_data));
-
-	/* object is window */
 	struct wrapped_data *wrap_data_w = g_malloc(sizeof(struct wrapped_data));
-
 	struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
 
 	serv_data->con = NULL;
@@ -646,7 +644,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	gtk_widget_show_all(window);
 }
 
-/* TODO: make table appearance better */
+/* TODO: edit table */
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
 	GtkWidget *window;
@@ -951,7 +949,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
 				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
-				g_print("%s[err]%s: Faile to open connection!\n", COLOR_RED, COLOR_DEFAULT);
+				g_print("%s[err]%s: Failed to open connection!\n", COLOR_RED, COLOR_DEFAULT);
 
 				return;
 			}
@@ -975,11 +973,11 @@ static void server_selected(GtkWidget *widget, gpointer data)
 				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
 				continue;
-			} else {
-				g_print("Successfully connected!\n");
-
-				window_databases(app, con);
 			}
+
+			g_print("Successfully connected!\n");
+
+			window_databases(app, con);
 		}
 	}
 
