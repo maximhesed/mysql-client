@@ -1,6 +1,6 @@
 CC=gcc
 
-CFLAGS=-Wall -Wextra -g -Wno-deprecated-declarations `pkg-config --cflags gtk+-3.0` `mysql_config --cflags`
+CFLAGS=-Wall -Wextra -g `pkg-config --cflags gtk+-3.0` `mysql_config --cflags`
 LDFLAGS=`pkg-config --libs gtk+-3.0` `mysql_config --libs`
 
 OBJS=main.o

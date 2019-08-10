@@ -3,7 +3,8 @@
 
 #include "data.h"
 
-#define RIGHT_BUTTON 3
+#define BUTTON_RIGHT 3
+#define KEY_RETURN 0xFF0D
 
 /* TODO: It's temporary solution, while i seek the way make independent
  * size window, but so that its size didn't be very large. */
@@ -12,7 +13,7 @@
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
-/* TODO: log to file */
+/* TODO: glib logging */
 #define COLOR_RED "\e[0;91m"
 #define COLOR_YELLOW "\e[0;93m"
 #define COLOR_CYAN "\e[0;96m"
@@ -76,7 +77,7 @@ static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointe
 {
 	(void) widget;
 
-	if (ev->type == GDK_BUTTON_PRESS && ev->button == RIGHT_BUTTON) {
+	if (ev->type == GDK_BUTTON_PRESS && ev->button == BUTTON_RIGHT) {
 		GtkTreeSelection *selection;
 		GtkTreeModel *model;
 
@@ -422,6 +423,7 @@ static void connection_close(GtkWidget *widget, gpointer data)
 	}
 }
 
+/* TODO: pass the user arguments */
 static void window_main(GtkApplication *app, gpointer data)
 {
 	(void) data;
@@ -581,7 +583,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	GtkWidget *scroll_window;
 	GtkWidget *view;
 	GtkTreeSelection *selection;
-	GtkWidget *vbox;
+	GtkWidget *box;
 	GtkWidget *button_disconnect;
 	GtkWidget *button_open;
 
@@ -609,9 +611,9 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	/* create a scrolled window */
 	scroll_window = gtk_scrolled_window_new(NULL, NULL);
 
-	/* vertical oriented box */
-	vbox = gtk_vbox_new(FALSE, 2);
-	gtk_container_add(GTK_CONTAINER(window), vbox);
+	/* box */
+	box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_container_add(GTK_CONTAINER(window), box);
 
 	/* tree view */
 	view = databases_view_create(con);
@@ -637,14 +639,15 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 
 	g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected), wrap_data);
 
-	gtk_box_pack_start(GTK_BOX(vbox), scroll_window, TRUE, TRUE, 1);
-	gtk_box_pack_start(GTK_BOX(vbox), button_disconnect, FALSE, FALSE, 1);
-	gtk_box_pack_start(GTK_BOX(vbox), button_open, FALSE, FALSE, 1);
+	gtk_box_pack_start(GTK_BOX(box), scroll_window, TRUE, TRUE, 1);
+	gtk_box_pack_start(GTK_BOX(box), button_disconnect, FALSE, FALSE, 1);
+	gtk_box_pack_start(GTK_BOX(box), button_open, FALSE, FALSE, 1);
 
 	gtk_widget_show_all(window);
 }
 
 /* TODO: edit table */
+/* TODO: horizontal scrollbar is hide the last table's row */
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
 	GtkWidget *window;
@@ -694,6 +697,11 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	vls_res = mysql_store_result(con);
 
+	/* I think that edit table is impossible here.
+	 * My idea: connect key press signal to each entry and get its position
+	 * like (0 + x), then change row by (0 + y) index (MYSQL_ROW is two-dimensional array).
+	 * But how to get the entry position? */
+
 	/* fill the columns names */
 	x = 0;
 	y = 0;
@@ -716,8 +724,19 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 		gint i;
 
 		for (i = 0; i < vls_n; i++) {
-			label = gtk_label_new(vls_row[i]);
-			gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+			if (g_strcmp0(vls_row[i], "") == 0) {
+				/* set markup */
+				const gchar *str = "NULL";
+				const gchar *format = "<span background='black'>\%s</span>";
+
+				gchar *markup = g_markup_printf_escaped(format, str);
+
+				label = gtk_label_new(NULL);
+				gtk_label_set_markup(GTK_LABEL(label), markup);
+			} else
+				label = gtk_label_new(vls_row[i]);
+
+			gtk_label_set_xalign(GTK_LABEL(label), 0.0);
 
 			gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
@@ -862,8 +881,7 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
 				for (j = 0; j < tbs_n; j++) {
 					gtk_tree_store_append(ts, &tbs_lvl, &dbs_lvl);
-					gtk_tree_store_set(ts, &tbs_lvl, COLUMN,
-						tbs_row[j], -1);
+					gtk_tree_store_set(ts, &tbs_lvl, COLUMN, tbs_row[j], -1);
 				}
 			}
 
