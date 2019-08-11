@@ -131,7 +131,7 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 	struct server_data *serv_data = wrap_data->data;
 	struct server *serv;
 
-	window = GTK_WINDOW(wrap_data->object);
+	window = GTK_WINDOW(wrap_data->window);
 
 	dialog = gtk_dialog_new_with_buttons("Rename", window, GTK_DIALOG_MODAL,
 		"OK", GTK_RESPONSE_ACCEPT,
@@ -207,7 +207,7 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 	GList *tmp;
 	GList *rows;
 
-	window = GTK_WINDOW(wrap_data->object);
+	window = GTK_WINDOW(wrap_data->window);
 
 	dialog = gtk_message_dialog_new(window,
 		GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_YES_NO,
@@ -303,7 +303,7 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
 	gchar *username;
 	gchar *password;
 
-	window = GTK_WINDOW(wrap_data->object);
+	window = GTK_WINDOW(wrap_data->window);
 
 	selection = gtk_tree_view_get_selection(serv_data->servers_view);
 	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
@@ -321,6 +321,13 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
 	/* TODO: show/hide password */
 	dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL, NULL, NULL);
 
+	/* content area */
+	content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+	/* box */
+	box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+	gtk_container_add(GTK_CONTAINER(content_area), box);
+
 	/* labels */
 	host = g_strdup_printf("Host: %s", serv->host);
 	username = g_strdup_printf("Username: %s", serv->username);
@@ -334,17 +341,9 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
 	gtk_label_set_xalign(GTK_LABEL(label_username), 0.0);
 	gtk_label_set_xalign(GTK_LABEL(label_password), 0.0);
 
-	/* box */
-	box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-
 	gtk_box_pack_start(GTK_BOX(box), label_host, TRUE, TRUE, 2);
 	gtk_box_pack_start(GTK_BOX(box), label_username, TRUE, TRUE, 2);
 	gtk_box_pack_start(GTK_BOX(box), label_password, TRUE, TRUE, 2);
-
-	/* dialog content area */
-	content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-
-	gtk_container_add(GTK_CONTAINER(content_area), box);
 
 	gtk_widget_show_all(dialog);
 
@@ -452,7 +451,7 @@ static void connection_open(GtkWidget *widget, gpointer data)
 	struct server_data *serv_data = wrap_data->data;
 	struct server *serv = g_malloc0(sizeof(struct server));
 
-	app = GTK_APPLICATION(wrap_data->object);
+	app = GTK_APPLICATION(wrap_data->app);
 
 	/* get user input from received data */
 	host = gtk_entry_get_text(GTK_ENTRY(serv_data->host));
@@ -555,8 +554,7 @@ static void window_main(GtkApplication *app, gpointer data)
 
 	GError *error = NULL;
 
-	struct wrapped_data *wrap_data_a = g_malloc(sizeof(struct wrapped_data));
-	struct wrapped_data *wrap_data_w = g_malloc(sizeof(struct wrapped_data));
+	struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
 	struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
 	struct args_data *args_data = data;
 
@@ -582,15 +580,14 @@ static void window_main(GtkApplication *app, gpointer data)
 	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data_a);
-	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data_w);
+	g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_servers_list),
 		serv_data->servers_list);
 	g_signal_connect(window, "destroy", G_CALLBACK(free_data), serv_data);
 	g_signal_connect(window, "destroy", G_CALLBACK(application_quit), app);
 
-	wrap_data_a->object = G_OBJECT(app);
-	wrap_data_w->object = G_OBJECT(window);
+	wrap_data->app = G_OBJECT(app);
+	wrap_data->window = G_OBJECT(window);
 
 	/* hang a grid */
 	grid = gtk_grid_new();
@@ -626,17 +623,17 @@ static void window_main(GtkApplication *app, gpointer data)
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
 	gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
 
-	g_signal_connect(view, "button-press-event", G_CALLBACK(servers_menu_call), wrap_data_w);
+	g_signal_connect(view, "button-press-event", G_CALLBACK(servers_menu_call), wrap_data);
 
 	serv_data->servers_view = GTK_TREE_VIEW(view);
 	serv_data->servers_store = store;
 
-	wrap_data_a->data = wrap_data_w->data = serv_data;
+	wrap_data->data = serv_data;
 
 	/* button "Add server" */
 	button_add_server = gtk_button_new_with_label("Add server");
 
-	g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), wrap_data_a);
+	g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), wrap_data);
 
 	/* passing the user arguments */
 	if (args_data->username && args_data->password) {
@@ -658,7 +655,7 @@ static void window_main(GtkApplication *app, gpointer data)
 	/* button "Connect" */
 	button_connect = gtk_button_new_with_label("Connect");
 
-	g_signal_connect(button_connect, "clicked", G_CALLBACK(server_selected), wrap_data_a);
+	g_signal_connect(button_connect, "clicked", G_CALLBACK(server_selected), wrap_data);
 
 	/* place widgets onto the grid */
 	gtk_grid_attach(GTK_GRID(grid), label_host, 0, 0, 1, 1);
@@ -715,17 +712,17 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	GtkWidget *window;
 	GtkWidget *scroll_window;
 	GtkWidget *view;
-	GtkTreeSelection *selection;
 	GtkWidget *box;
 	GtkWidget *button_disconnect;
 	GtkWidget *button_open;
+	GtkTreeSelection *selection;
 
 	gchar *title;
 
 	struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
 	struct selection_data *sel_data = g_malloc(sizeof(struct selection_data));
 
-	wrap_data->object = G_OBJECT(app);
+	wrap_data->app = G_OBJECT(app);
 
 	title = g_strdup_printf("Databases ('%s'@'%s')", con->user, con->host);
 
@@ -904,7 +901,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
 	struct wrapped_data *wrap_data = data;
 	struct selection_data *sel_data = wrap_data->data;
 
-	app = GTK_APPLICATION(wrap_data->object);
+	app = GTK_APPLICATION(wrap_data->app);
 	selection = sel_data->selection;
 	con = sel_data->con;
 
@@ -1074,7 +1071,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
 	struct wrapped_data *wrap_data = data;
 	struct server_data *serv_data = wrap_data->data;
 
-	app = GTK_APPLICATION(wrap_data->object);
+	app = GTK_APPLICATION(wrap_data->app);
 
 	selection = gtk_tree_view_get_selection(serv_data->servers_view);
 

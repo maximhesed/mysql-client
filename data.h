@@ -6,7 +6,8 @@
 
 /* data which will passed everywhere auxiliary object is needed */
 struct wrapped_data {
-	GObject *object;
+	GObject *app;
+	GObject *window;
 	gpointer data;
 };
 
