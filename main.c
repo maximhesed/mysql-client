@@ -14,12 +14,6 @@
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
-/* TODO: glib logging */
-#define COLOR_RED "\e[0;91m"
-#define COLOR_YELLOW "\e[0;93m"
-#define COLOR_CYAN "\e[0;96m"
-#define COLOR_DEFAULT "\e[0m"
-
 enum {
 	COLUMN = 0,
 	NUM_COLS
@@ -398,7 +392,7 @@ int main(int argc, char *argv[])
 	g_option_context_add_main_entries(context, entries, NULL);
 	g_option_context_add_group(context, gtk_get_option_group(TRUE));
 	if (!g_option_context_parse(context, &argc, &argv, &error)) {
-		g_print("%s[err]%s: %s\n", COLOR_RED, COLOR_DEFAULT, error->message);
+		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "%s", error->message);
 
 		g_error_free(error);
 
@@ -406,13 +400,12 @@ int main(int argc, char *argv[])
 	}
 
 	/* check MySQL version */
-	g_print("%s[info]%s: MySQL client version: %s\n", COLOR_CYAN, COLOR_DEFAULT,
+	g_log(G_LOG_DOMAIN, G_LOG_LEVEL_INFO, "MySQL client version: %s",
 		mysql_get_client_info());
 
 	/* MySQL library initialization */
 	if (mysql_library_init(0, NULL, NULL)) {
-		g_print("%s[err]%s: Couldn't initialize MySQL client library.\n", COLOR_RED,
-			COLOR_DEFAULT);
+		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "Couldn't initialize MySQL client library.");
 
 		return -1;
 	}
@@ -466,8 +459,7 @@ static void connection_open(GtkWidget *widget, gpointer data)
 
 		if ((g_strcmp0(host, serv->host) == 0) &&
 			(g_strcmp0(username, serv->username) == 0)) {
-			g_print("%s[info]%s: This server is already added on the list.\n", COLOR_CYAN,
-				COLOR_DEFAULT);
+			g_print("This server is already added on the list.\n");
 
 			return;
 		}
@@ -563,8 +555,8 @@ static void window_main(GtkApplication *app, gpointer data)
 	/* load icon */
 	icon = gdk_pixbuf_new_from_file("icon.png", &error);
 	if (!icon) {
-		g_print("%s[err]%s: Failed to load application icon!\n", COLOR_RED, COLOR_DEFAULT);
-		g_print("%s\n", error->message);
+		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "Failed to load application icon.");
+		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "%s", error->message);
 
 		g_error_free(error);
 	}
@@ -818,8 +810,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 	cmd = g_strdup_printf("select * from `%s`", tb_name);
 	if (mysql_query(con, cmd)) {
-		g_print("%s[err]%s: Problem with access to the table '%s'.\n", COLOR_RED,
-			COLOR_DEFAULT, tb_name);
+		g_print("Problem with access to the table '%s'.\n", tb_name);
 
 		connection_error(con);
 
@@ -856,14 +847,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
 		for (i = 0; i < vls_n; i++) {
 			if (g_strcmp0(vls_row[i], "") == 0 || !vls_row[i]) {
-				/* set markup */
-				const gchar *str = "NULL";
-				const gchar *format = "<span background='black'>\%s</span>";
-
-				gchar *markup = g_markup_printf_escaped(format, str);
-
-				label = gtk_label_new(NULL);
-				gtk_label_set_markup(GTK_LABEL(label), markup);
+				label = gtk_label_new("NULL");
 			} else
 				label = gtk_label_new(vls_row[i]);
 
@@ -907,7 +891,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
 
 	rows = gtk_tree_selection_get_selected_rows(selection, &model);
 	if (rows == NULL) {
-		g_print("%s[warn]%s: No selected tables.\n", COLOR_YELLOW, COLOR_DEFAULT);
+		g_print("No selected tables.\n");
 
 		return;
 	}
@@ -1077,7 +1061,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
 	rows = gtk_tree_selection_get_selected_rows(selection, &model);
 	if (rows == NULL) {
-		g_print("%s[warn]%s: No selected servers.\n", COLOR_YELLOW, COLOR_DEFAULT);
+		g_print("No selected servers.\n");
 
 		return;
 	}
@@ -1094,11 +1078,11 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
 			con = mysql_init(con);
 			if (con == NULL) {
+				g_print("Failed to open connection!\n");
+
 				connection_terminate(con);
 
 				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
-
-				g_print("%s[err]%s: Failed to open connection!\n", COLOR_RED, COLOR_DEFAULT);
 
 				return;
 			}
@@ -1115,9 +1099,9 @@ static void server_selected(GtkWidget *widget, gpointer data)
 					serv->username,
 					serv->password,
 					NULL, 0, NULL, 0) == NULL) {
-				connection_terminate(con);
+				g_print("Connection failed!\n");
 
-				g_print("%s[err]%s: Connection failed!\n", COLOR_RED, COLOR_DEFAULT);
+				connection_terminate(con);
 
 				g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
