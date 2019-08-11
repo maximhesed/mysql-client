@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
+#include <termios.h>
 
 #include "data.h"
 
@@ -292,7 +293,6 @@ static void application_quit(GtkWidget *widget, gpointer data)
 }
 
 /* TODO: 'GLib-GIO-CRITICAL **: This application can not open files.' */
-/* TODO: suppress output when input is transferred during program execution */
 int main(int argc, char *argv[])
 {
 	GtkApplication *app;
@@ -318,6 +318,8 @@ int main(int argc, char *argv[])
 	if (!g_option_context_parse(context, &argc, &argv, &error)) {
 		g_print("%s[err]%s: %s\n", COLOR_RED, COLOR_DEFAULT, error->message);
 
+		g_error_free(error);
+
 		return -1;
 	}
 
@@ -342,6 +344,9 @@ int main(int argc, char *argv[])
 	g_object_unref(app);
 
 	mysql_library_end();
+
+	/* flush all input */
+	tcflush(STDOUT_FILENO, TCIFLUSH);
 
 	return status;
 }
@@ -479,6 +484,7 @@ static void window_main(GtkApplication *app, gpointer data)
 	if (!icon) {
 		g_print("%s[err]%s: Failed to load application icon!\n", COLOR_RED, COLOR_DEFAULT);
 		g_print("%s\n", error->message);
+
 		g_error_free(error);
 	}
 
