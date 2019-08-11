@@ -292,7 +292,6 @@ static void application_quit(GtkWidget *widget, gpointer data)
 	g_application_quit(G_APPLICATION(app));
 }
 
-/* TODO: 'GLib-GIO-CRITICAL **: This application can not open files.' */
 int main(int argc, char *argv[])
 {
 	GtkApplication *app;
@@ -339,7 +338,7 @@ int main(int argc, char *argv[])
 	app = gtk_application_new("org.gtk.dbviewer", G_APPLICATION_FLAGS_NONE);
 	g_signal_connect(app, "activate", G_CALLBACK(window_main), data);
 	g_signal_connect(app, "shutdown", G_CALLBACK(free_data), data);
-	status = g_application_run(G_APPLICATION(app), argc, argv);
+	status = g_application_run(G_APPLICATION(app), 0, NULL);
 
 	g_object_unref(app);
 
