@@ -50,24 +50,28 @@ static void servers_menu_view(gpointer data);
 static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data);
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
+static void servers_menu_item_info(GtkWidget *widget, gpointer data);
 
-/* TODO: add server info item */
 /* servers menu */
 static void servers_menu_view(gpointer data)
 {
 	GtkWidget *menu;
 	GtkWidget *item_rename;
 	GtkWidget *item_remove;
+	GtkWidget *item_info;
 
 	menu = gtk_menu_new();
 	item_rename = gtk_menu_item_new_with_label("rename");
 	item_remove = gtk_menu_item_new_with_label("remove");
+	item_info = gtk_menu_item_new_with_label("info");
 
 	g_signal_connect(item_rename, "activate", G_CALLBACK(servers_menu_item_rename), data);
 	g_signal_connect(item_remove, "activate", G_CALLBACK(servers_menu_item_remove), data);
+	g_signal_connect(item_info, "activate", G_CALLBACK(servers_menu_item_info), data);
 
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_rename);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_remove);
+	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_info);
 
 	gtk_widget_show_all(menu);
 
@@ -269,6 +273,86 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 		break;
 	}
 
+	gtk_widget_destroy(dialog);
+}
+
+/* show selected server info */
+static void servers_menu_item_info(GtkWidget *widget, gpointer data)
+{
+	(void) widget;
+
+	GtkWidget *dialog;
+	GtkWidget *content_area;
+	GtkWidget *label_host;
+	GtkWidget *label_username;
+	GtkWidget *label_password;
+	GtkWidget *box;
+	GtkWindow *window;
+	GtkTreeModel *model;
+	GtkTreeSelection *selection;
+	GtkTreeIter iter;
+	GtkTreePath *path;
+
+	gint *index;
+
+	struct wrapped_data *wrap_data = data;
+	struct server_data *serv_data = wrap_data->data;
+	struct server *serv;
+
+	gchar *host;
+	gchar *username;
+	gchar *password;
+
+	window = GTK_WINDOW(wrap_data->object);
+
+	selection = gtk_tree_view_get_selection(serv_data->servers_view);
+	gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
+
+	if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+		return;
+
+	path = gtk_tree_model_get_path(model, &iter);
+	index = gtk_tree_path_get_indices(path);
+
+	serv = g_list_nth_data(serv_data->servers_list, index[0]);
+
+	gtk_tree_path_free(path);
+
+	/* TODO: show/hide password */
+	dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL, NULL, NULL);
+
+	/* labels */
+	host = g_strdup_printf("Host: %s", serv->host);
+	username = g_strdup_printf("Username: %s", serv->username);
+	password = g_strdup_printf("Password: %s", serv->password);
+
+	label_host = gtk_label_new(host);
+	label_username = gtk_label_new(username);
+	label_password = gtk_label_new(password);
+
+	gtk_label_set_xalign(GTK_LABEL(label_host), 0.0);
+	gtk_label_set_xalign(GTK_LABEL(label_username), 0.0);
+	gtk_label_set_xalign(GTK_LABEL(label_password), 0.0);
+
+	/* box */
+	box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+
+	gtk_box_pack_start(GTK_BOX(box), label_host, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(box), label_username, TRUE, TRUE, 2);
+	gtk_box_pack_start(GTK_BOX(box), label_password, TRUE, TRUE, 2);
+
+	/* dialog content area */
+	content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+	gtk_container_add(GTK_CONTAINER(content_area), box);
+
+	gtk_widget_show_all(dialog);
+
+	g_free(host);
+	g_free(username);
+	g_free(password);
+
+	gtk_dialog_run(GTK_DIALOG(dialog));
 	gtk_widget_destroy(dialog);
 }
 
@@ -625,6 +709,7 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 	g_list_free(list);
 }
 
+/* TODO: replace window with dialog */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
 	GtkWidget *window;
@@ -694,6 +779,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	gtk_widget_show_all(window);
 }
 
+/* TODO: replace window with dialog */
 /* TODO: edit table */
 /* TODO: horizontal scrollbar is hide the last table's row */
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
