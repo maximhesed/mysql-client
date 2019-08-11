@@ -37,4 +37,10 @@ struct selection_data {
 	MYSQL *con;
 };
 
+struct args_data {
+	const gchar *host;
+	const gchar *username;
+	const gchar *password;
+};
+
 #endif /* DATA_H */

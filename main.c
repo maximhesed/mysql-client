@@ -50,6 +50,7 @@ static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointe
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
 
+/* TODO: add server info item */
 /* servers menu */
 static void servers_menu_view(gpointer data)
 {
@@ -290,11 +291,35 @@ static void application_quit(GtkWidget *widget, gpointer data)
 	g_application_quit(G_APPLICATION(app));
 }
 
+/* TODO: 'GLib-GIO-CRITICAL **: This application can not open files.' */
+/* TODO: suppress output when input is transferred during program execution */
 int main(int argc, char *argv[])
 {
 	GtkApplication *app;
 
+	struct args_data *data = g_malloc0(sizeof(struct args_data));
+
+	GOptionEntry entries[] = {
+		{"host", 'h', 0, G_OPTION_ARG_STRING, &data->host, "Host name", "0.0.0.0"},
+		{"username", 'u', 0, G_OPTION_ARG_STRING, &data->username, "User name", "str"},
+		{"password", 'p', 0, G_OPTION_ARG_STRING, &data->password, "Password", "str"},
+		{NULL}
+	};
+
+	GError *error = NULL;
+	GOptionContext *context;
+
 	gint status;
+
+	/* parse extra user arguments */
+	context = g_option_context_new(NULL);
+	g_option_context_add_main_entries(context, entries, NULL);
+	g_option_context_add_group(context, gtk_get_option_group(TRUE));
+	if (!g_option_context_parse(context, &argc, &argv, &error)) {
+		g_print("%s[err]%s: %s\n", COLOR_RED, COLOR_DEFAULT, error->message);
+
+		return -1;
+	}
 
 	/* check MySQL version */
 	g_print("%s[info]%s: MySQL client version: %s\n", COLOR_CYAN, COLOR_DEFAULT,
@@ -310,7 +335,8 @@ int main(int argc, char *argv[])
 
 	/* launch application */
 	app = gtk_application_new("org.gtk.dbviewer", G_APPLICATION_FLAGS_NONE);
-	g_signal_connect(app, "activate", G_CALLBACK(window_main), NULL);
+	g_signal_connect(app, "activate", G_CALLBACK(window_main), data);
+	g_signal_connect(app, "shutdown", G_CALLBACK(free_data), data);
 	status = g_application_run(G_APPLICATION(app), argc, argv);
 
 	g_object_unref(app);
@@ -423,7 +449,6 @@ static void connection_close(GtkWidget *widget, gpointer data)
 	}
 }
 
-/* TODO: pass the user arguments */
 static void window_main(GtkApplication *app, gpointer data)
 {
 	(void) data;
@@ -445,6 +470,7 @@ static void window_main(GtkApplication *app, gpointer data)
 	struct wrapped_data *wrap_data_a = g_malloc(sizeof(struct wrapped_data));
 	struct wrapped_data *wrap_data_w = g_malloc(sizeof(struct wrapped_data));
 	struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
+	struct args_data *args_data = data;
 
 	serv_data->con = NULL;
 
@@ -522,6 +548,23 @@ static void window_main(GtkApplication *app, gpointer data)
 	button_add_server = gtk_button_new_with_label("Add server");
 
 	g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), wrap_data_a);
+
+	/* passing the user arguments */
+	if (args_data->username && args_data->password) {
+		if (args_data->host)
+			gtk_entry_set_text(GTK_ENTRY(serv_data->host), args_data->host);
+		else
+			gtk_entry_set_text(GTK_ENTRY(serv_data->host), "localhost");
+
+		gtk_entry_set_text(GTK_ENTRY(serv_data->username), args_data->username);
+		gtk_entry_set_text(GTK_ENTRY(serv_data->password), args_data->password);
+
+		g_signal_emit_by_name(button_add_server, "clicked");
+
+		gtk_entry_set_text(GTK_ENTRY(serv_data->host), "");
+		gtk_entry_set_text(GTK_ENTRY(serv_data->username), "");
+		gtk_entry_set_text(GTK_ENTRY(serv_data->password), "");
+	}
 
 	/* button "Connect" */
 	button_connect = gtk_button_new_with_label("Connect");
@@ -724,7 +767,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 		gint i;
 
 		for (i = 0; i < vls_n; i++) {
-			if (g_strcmp0(vls_row[i], "") == 0) {
+			if (g_strcmp0(vls_row[i], "") == 0 || !vls_row[i]) {
 				/* set markup */
 				const gchar *str = "NULL";
 				const gchar *format = "<span background='black'>\%s</span>";
