@@ -4,7 +4,7 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 
-/* data which will passed everywhere auxiliary object is needed */
+/* data which will passed everywhere auxiliary objects is needed */
 struct wrapped_data {
 	GObject *app;
 	GObject *window;

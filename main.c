@@ -523,6 +523,12 @@ static void connection_close(GtkWidget *widget, gpointer data)
 
 	if (con != NULL) {
 		g_print("Close connection...\n");
+
+		if (con->db) {
+			g_free(con->db);
+			con->db = NULL;
+		}
+
 		mysql_close(con);
 		con = NULL;
 	}
@@ -783,20 +789,24 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	MYSQL_ROW vls_row;
 
 	gchar *cmd;
+	gchar *title;
 
 	gint x;
 	gint y;
 	gint vls_n;
 
+	title = g_strdup_printf("%s->%s ('%s'@'%s')", con->db, tb_name, con->user, con->host);
+
 	/* create a window */
 	window = gtk_application_window_new(app);
 	gtk_window_resize(GTK_WINDOW(window), WIN_TBS_X, WIN_TBS_Y);
-	gtk_window_set_title(GTK_WINDOW(window), tb_name);
+	gtk_window_set_title(GTK_WINDOW(window), title);
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_window_move(GTK_WINDOW(window), 50, 50);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
+	g_signal_connect(window, "destroy", G_CALLBACK(free_data), title);
 
 	/* create a scrolled window */
 	scroll_window = gtk_scrolled_window_new(NULL, NULL);
@@ -911,9 +921,7 @@ static void table_selected(GtkWidget *widget, gpointer data)
 			if (gtk_tree_model_get_iter(model, &iter, path)) {
 				if (!gtk_tree_model_iter_children(model, &child, &iter)) {
 					if (depth > 1) {
-						/* It's table. */
-
-						/* Maybe, it belongs another database,
+						/* It's table. Maybe, it belongs another database,
 						 * so use its database just in case. */
 
 						gchar *value;
@@ -926,6 +934,10 @@ static void table_selected(GtkWidget *widget, gpointer data)
 							if (mysql_query(con, cmd))
 								connection_terminate(con);
 
+							/* give connection database name for table title */
+							con->db = g_strdup(value);
+
+							/* now, value is table name */
 							gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
 							window_table(app, con, value);
 
@@ -1119,10 +1131,10 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
 static GtkWidget * databases_view_create(MYSQL *con)
 {
-	GtkTreeViewColumn *col;
-	GtkCellRenderer *renderer;
 	GtkWidget *view;
 	GtkTreeModel *model;
+	GtkTreeViewColumn *col;
+	GtkCellRenderer *renderer;
 
 	view = gtk_tree_view_new();
 
@@ -1145,10 +1157,7 @@ static void connection_terminate(MYSQL *con)
 {
 	g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
 
-	if (con != NULL) {
-		mysql_close(con);
-		con = NULL;
-	}
+	connection_close(NULL, con);
 }
 
 static void connection_error(MYSQL *con)
