@@ -8,7 +8,7 @@
 #define KEY_RETURN 0xFF0D
 
 /* TODO: It's temporary solution, while i seek the way make independent
- * size window, but so that its size didn't be very large. */
+ * size of the window, but so that its size didn't be very large. */
 #define WIN_DBS_X 650
 #define WIN_DBS_Y 550
 #define WIN_TBS_X 500
@@ -376,9 +376,9 @@ int main(int argc, char *argv[])
 	struct args_data *data = g_malloc0(sizeof(struct args_data));
 
 	GOptionEntry entries[] = {
-		{"host", 'h', 0, G_OPTION_ARG_STRING, &data->host, "Host name", "0.0.0.0"},
-		{"username", 'u', 0, G_OPTION_ARG_STRING, &data->username, "User name", "str"},
-		{"password", 'p', 0, G_OPTION_ARG_STRING, &data->password, "Password", "str"},
+		{"host", 'h', 0, G_OPTION_ARG_STRING, &data->host, "Host", "HOST"},
+		{"username", 'u', 0, G_OPTION_ARG_STRING, &data->username, "Username", "STR"},
+		{"password", 'p', 0, G_OPTION_ARG_STRING, &data->password, "Password", "STR"},
 		{NULL}
 	};
 
@@ -548,9 +548,6 @@ static void window_main(GtkApplication *app, gpointer data)
 	GtkWidget *view;
 	GtkListStore *store;
 	GtkTreeSelection *selection;
-	GdkPixbuf *icon;
-
-	GError *error = NULL;
 
 	struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
 	struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
@@ -558,20 +555,10 @@ static void window_main(GtkApplication *app, gpointer data)
 
 	serv_data->con = NULL;
 
-	/* load icon */
-	icon = gdk_pixbuf_new_from_file("icon.png", &error);
-	if (!icon) {
-		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "Failed to load application icon.");
-		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "%s", error->message);
-
-		g_error_free(error);
-	}
-
 	/* create a window */
 	window = gtk_application_window_new(app);
 	gtk_window_set_title(GTK_WINDOW(window), "Login");
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-	gtk_window_set_icon(GTK_WINDOW(window), icon);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
 	/* TODO: for some reason, window remains is resizable */
@@ -668,7 +655,6 @@ static void window_main(GtkApplication *app, gpointer data)
 
 	gtk_widget_show_all(window);
 
-	g_object_unref(G_OBJECT(icon));
 	g_object_unref(G_OBJECT(store));
 
 	gtk_main();
@@ -704,7 +690,7 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 	g_list_free(list);
 }
 
-/* TODO: replace window with dialog */
+/* TODO: show tables, based on user permissions */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
 	GtkWidget *window;
@@ -774,9 +760,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 	gtk_widget_show_all(window);
 }
 
-/* TODO: replace window with dialog */
 /* TODO: edit table */
-/* TODO: horizontal scrollbar is hide the last table's row */
 static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
 	GtkWidget *window;
@@ -816,7 +800,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	grid = gtk_grid_new();
 	gtk_container_add(GTK_CONTAINER(scroll_window), grid);
 	gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
-	gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
+	gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
 
 	cmd = g_strdup_printf("select * from `%s`", tb_name);
 	if (mysql_query(con, cmd)) {
@@ -846,6 +830,10 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 		x++;
 	}
 
+	/* make space after columns for vertical scroll bar */
+	label = gtk_label_new("");
+	gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
+
 	x = 0;
 	y++;
 
@@ -856,9 +844,9 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 		gint i;
 
 		for (i = 0; i < vls_n; i++) {
-			if (g_strcmp0(vls_row[i], "") == 0 || !vls_row[i]) {
+			if (g_strcmp0(vls_row[i], "") == 0 || !vls_row[i])
 				label = gtk_label_new("NULL");
-			} else
+			else
 				label = gtk_label_new(vls_row[i]);
 
 			gtk_label_set_xalign(GTK_LABEL(label), 0.0);
@@ -871,6 +859,10 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 		x = 0;
 		y++;
 	}
+
+	/* make space after rows for horizontal scroll bar */
+	label = gtk_label_new("");
+	gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
 	mysql_free_result(vls_res);
 	g_free(cmd);
