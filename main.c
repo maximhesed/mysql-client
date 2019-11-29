@@ -87,10 +87,8 @@ static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev,
     if (ev->type == GDK_BUTTON_PRESS && ev->button == BUTTON_RIGHT) {
         GtkTreeSelection *selection;
         GtkTreeModel *model;
-
         struct wrapped_data *wrap_data = data;
         struct server_data *serv_data = wrap_data->data;
-
         GList *rows = NULL;
 
         selection = gtk_tree_view_get_selection(serv_data->servers_view);
@@ -122,12 +120,9 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
     GtkTreeIter iter;
     GtkTreePath *path;
     GtkWindow *window;
-
     gint result;
     gint *index;
-
     const gchar *s_name;
-
     struct wrapped_data *wrap_data = data;
     struct server_data *serv_data = wrap_data->data;
     struct server *serv;
@@ -196,14 +191,11 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
     GtkTreeModel *model;
     GtkTreeSelection *selection;
     GtkTreeRowReference *row_ref;
-
     gint result;
     gint *index;
-
     struct wrapped_data *wrap_data = data;
     struct server_data *serv_data = wrap_data->data;
     struct server *serv;
-
     GList *rr_list = NULL;
     GList *node;
     GList *tmp;
@@ -290,23 +282,18 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
     GtkWidget *content_area;
     GtkWidget *label_host;
     GtkWidget *label_username;
-    GtkWidget *label_password;
     GtkWidget *box;
     GtkWindow *window;
     GtkTreeModel *model;
     GtkTreeSelection *selection;
     GtkTreeIter iter;
     GtkTreePath *path;
-
     gint *index;
-
     struct wrapped_data *wrap_data = data;
     struct server_data *serv_data = wrap_data->data;
     struct server *serv;
-
     gchar *host;
     gchar *username;
-    gchar *password;
 
     window = GTK_WINDOW(wrap_data->window);
 
@@ -323,7 +310,6 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
 
     gtk_tree_path_free(path);
 
-    /* TODO: show/hide password */
     dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL,
         NULL, NULL);
 
@@ -337,25 +323,20 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
     /* labels */
     host = g_strdup_printf("Host: %s", serv->host);
     username = g_strdup_printf("Username: %s", serv->username);
-    password = g_strdup_printf("Password: %s", serv->password);
 
     label_host = gtk_label_new(host);
     label_username = gtk_label_new(username);
-    label_password = gtk_label_new(password);
 
     gtk_label_set_xalign(GTK_LABEL(label_host), 0.0);
     gtk_label_set_xalign(GTK_LABEL(label_username), 0.0);
-    gtk_label_set_xalign(GTK_LABEL(label_password), 0.0);
 
     gtk_box_pack_start(GTK_BOX(box), label_host, TRUE, TRUE, 2);
     gtk_box_pack_start(GTK_BOX(box), label_username, TRUE, TRUE, 2);
-    gtk_box_pack_start(GTK_BOX(box), label_password, TRUE, TRUE, 2);
 
     gtk_widget_show_all(dialog);
 
     g_free(host);
     g_free(username);
-    g_free(password);
 
     gtk_dialog_run(GTK_DIALOG(dialog));
     gtk_widget_destroy(dialog);
@@ -384,9 +365,7 @@ static void application_quit(GtkWidget *widget, gpointer data)
 int main(int argc, char *argv[])
 {
     GtkApplication *app;
-
     struct args_data *data = g_malloc0(sizeof(struct args_data));
-
     GOptionEntry entries[] = {
         {
             "host",
@@ -417,10 +396,8 @@ int main(int argc, char *argv[])
         },
         {NULL}
     };
-
     GError *error = NULL;
     GOptionContext *context;
-
     gint status;
 
     /* parse extra user arguments */
@@ -468,15 +445,11 @@ static void connection_open(GtkWidget *widget, gpointer data)
     (void) widget;
 
     GtkApplication *app;
-
     GList *tmp;
-
     MYSQL *con = NULL;
-
     const gchar *host;
     const gchar *username;
     const gchar *password;
-
     struct wrapped_data *wrap_data = data;
     struct server_data *serv_data = wrap_data->data;
     struct server *serv = g_malloc0(sizeof(struct server));
@@ -585,7 +558,6 @@ static void window_main(GtkApplication *app, gpointer data)
     GtkWidget *view;
     GtkListStore *store;
     GtkTreeSelection *selection;
-
     struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
     struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
     struct args_data *args_data = data;
@@ -638,6 +610,7 @@ static void window_main(GtkApplication *app, gpointer data)
     gtk_entry_set_visibility(GTK_ENTRY(serv_data->password), FALSE);
     gtk_entry_set_invisible_char(GTK_ENTRY(serv_data->password), L'•');
 
+    /* TODO: disable focus on view */
     /* create a servers list */
     store = gtk_list_store_new(NUM_COLS, G_TYPE_STRING);
     view = servers_view_create(store);
@@ -715,7 +688,6 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
 
     GList *list = data;
     GList *tmp = list;
-
     struct server *serv;
 
     while (tmp != NULL) {
@@ -732,7 +704,8 @@ static void free_servers_list(GtkWidget *widget, gpointer data)
     g_list_free(list);
 }
 
-/* TODO: show tables, based on user permissions */
+/* I think, that show tables, based on user permissions not correctly
+ * decision, because user has permission to look at the table name. */
 static void window_databases(GtkApplication *app, MYSQL *con)
 {
     GtkWidget *window;
@@ -742,9 +715,7 @@ static void window_databases(GtkApplication *app, MYSQL *con)
     GtkWidget *button_disconnect;
     GtkWidget *button_open;
     GtkTreeSelection *selection;
-
     gchar *title;
-
     struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
     struct selection_data *sel_data = g_malloc(sizeof(struct selection_data));
 
@@ -810,14 +781,11 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
     GtkWidget *scroll_window;
     GtkWidget *grid;
     GtkWidget *label;
-
     MYSQL_RES *vls_res;
     MYSQL_FIELD *vls_fld;
     MYSQL_ROW vls_row;
-
     gchar *cmd;
     gchar *title;
-
     gint x;
     gint y;
     gint vls_n;
@@ -848,7 +816,7 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 
     cmd = g_strdup_printf("select * from `%s`", tb_name);
     if (mysql_query(con, cmd)) {
-        g_print("Problem with access to the table '%s'.\n", tb_name);
+        g_print("Problem with access to the table \"%s\".\n", tb_name);
 
         connection_error(con);
 
@@ -923,12 +891,9 @@ static void table_selected(GtkWidget *widget, gpointer data)
     GtkTreeSelection *selection;
     GtkTreeModel *model;
     GtkTreePath *path;
-
     GList *rows = NULL;
     GList *tmp = NULL;
-
     MYSQL *con = NULL;
-
     struct wrapped_data *wrap_data = data;
     struct selection_data *sel_data = wrap_data->data;
 
@@ -950,7 +915,6 @@ static void table_selected(GtkWidget *widget, gpointer data)
             GtkTreeIter iter;
             GtkTreeIter child;
             GtkTreeIter parent;
-
             gint depth;
 
             depth = gtk_tree_path_get_depth(path);
@@ -960,7 +924,6 @@ static void table_selected(GtkWidget *widget, gpointer data)
                     if (depth > 1) {
                         /* It's table. Maybe, it belongs another database,
                          * so use its database just in case. */
-
                         gchar *value;
                         gchar *cmd;
 
@@ -973,7 +936,8 @@ static void table_selected(GtkWidget *widget, gpointer data)
                             if (mysql_query(con, cmd))
                                 connection_terminate(con);
 
-                            /* give connection database name for table title */
+                            /* give connection database
+                             * name for table title */
                             con->db = g_strdup(value);
 
                             /* now, value is table name */
@@ -998,12 +962,10 @@ static GtkTreeModel * databases_get(MYSQL *con)
     GtkTreeStore *ts;
     GtkTreeIter dbs_lvl;
     GtkTreeIter tbs_lvl;
-
     MYSQL_RES *dbs_res;
     MYSQL_RES *tbs_res;
     MYSQL_ROW dbs_row; /* databases names */
     MYSQL_ROW tbs_row; /* tables names */
-
     gint dbs_n;
 
     if (mysql_query(con, "show databases"))
@@ -1024,7 +986,6 @@ static GtkTreeModel * databases_get(MYSQL *con)
 
         for (i = 0; i < dbs_n; i++) {
             gchar *cmd;
-
             gint tbs_n;
 
             gtk_tree_store_append(ts, &dbs_lvl, NULL);
@@ -1098,10 +1059,8 @@ static void server_selected(GtkWidget *widget, gpointer data)
     GtkTreeSelection *selection;
     GtkTreeModel *model;
     GtkTreePath *path;
-
     GList *rows = NULL;
     GList *tmp = NULL;
-
     MYSQL *con = NULL;
 
     struct wrapped_data *wrap_data = data;
@@ -1123,7 +1082,6 @@ static void server_selected(GtkWidget *widget, gpointer data)
 
         if (path) {
             gint *index;
-
             struct server *serv;
 
             index = gtk_tree_path_get_indices(path);
@@ -1160,7 +1118,7 @@ static void server_selected(GtkWidget *widget, gpointer data)
                 continue;
             }
 
-            g_print("Successfully connected!\n");
+            g_print("Successfully connected.\n");
 
             window_databases(app, con);
         }
