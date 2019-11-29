@@ -33,15 +33,18 @@ static void free_servers_list(GtkWidget *widget, gpointer data);
 static void connection_terminate(MYSQL *con);
 static void connection_error(MYSQL *con);
 static GtkWidget * servers_view_create(GtkListStore *store);
-static void servers_store_add_server(GtkListStore **store, const gchar *s_name);
+static void servers_store_add_server(GtkListStore **store,
+    const gchar *s_name);
 static void window_databases(GtkApplication *app, MYSQL *con);
-static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name);
+static void window_table(GtkApplication *app, MYSQL *con,
+    const gchar *tb_name);
 static GtkTreeModel * databases_get(MYSQL *con);
 static GtkWidget * databases_view_create(MYSQL *con);
 
 /* servers popup menu */
 static void servers_menu_view(gpointer data);
-static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data);
+static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev,
+    gpointer data);
 static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
 static void servers_menu_item_info(GtkWidget *widget, gpointer data);
@@ -59,9 +62,12 @@ static void servers_menu_view(gpointer data)
 	item_remove = gtk_menu_item_new_with_label("remove");
 	item_info = gtk_menu_item_new_with_label("info");
 
-	g_signal_connect(item_rename, "activate", G_CALLBACK(servers_menu_item_rename), data);
-	g_signal_connect(item_remove, "activate", G_CALLBACK(servers_menu_item_remove), data);
-	g_signal_connect(item_info, "activate", G_CALLBACK(servers_menu_item_info), data);
+	g_signal_connect(item_rename, "activate",
+        G_CALLBACK(servers_menu_item_rename), data);
+	g_signal_connect(item_remove, "activate",
+        G_CALLBACK(servers_menu_item_remove), data);
+	g_signal_connect(item_info, "activate",
+        G_CALLBACK(servers_menu_item_info), data);
 
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_rename);
 	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_remove);
@@ -73,7 +79,8 @@ static void servers_menu_view(gpointer data)
 }
 
 /* servers menu handler */
-static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev, gpointer data)
+static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev,
+    gpointer data)
 {
 	(void) widget;
 
@@ -159,7 +166,8 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
 		serv = g_list_nth_data(serv_data->servers_list, index[0]);
 
 		s_name = gtk_entry_get_text(GTK_ENTRY(entry));
-		gtk_list_store_set(serv_data->servers_store, &iter, COLUMN, s_name, -1);
+		gtk_list_store_set(serv_data->servers_store, &iter, COLUMN,
+            s_name, -1);
 
 		serv->name = g_strdup(s_name);
 
@@ -234,7 +242,8 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 				index = gtk_tree_path_get_indices(path);
 
 				tmp = g_list_nth(serv_data->servers_list, index[0]);
-				serv_data->servers_list = g_list_remove_link(serv_data->servers_list, tmp);
+				serv_data->servers_list = g_list_remove_link(
+                    serv_data->servers_list, tmp);
 				serv = tmp->data;
 
 				/* free server data */
@@ -244,7 +253,8 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 				g_free(serv->name);
 				g_free(serv);
 
-				/* free temp list because it's has allocated by g_list_nth() */
+				/* free temp list because it's has
+                 * allocated by g_list_nth() */
 				g_list_free(tmp);
 			}
 		}
@@ -259,7 +269,8 @@ static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
 			}
 		}
 
-		g_list_free_full(rr_list, (GDestroyNotify) gtk_tree_row_reference_free);
+		g_list_free_full(rr_list,
+            (GDestroyNotify) gtk_tree_row_reference_free);
 		g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
 		break;
@@ -313,7 +324,8 @@ static void servers_menu_item_info(GtkWidget *widget, gpointer data)
 	gtk_tree_path_free(path);
 
 	/* TODO: show/hide password */
-	dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL, NULL, NULL);
+	dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL,
+        NULL, NULL);
 
 	/* content area */
 	content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
@@ -376,9 +388,33 @@ int main(int argc, char *argv[])
 	struct args_data *data = g_malloc0(sizeof(struct args_data));
 
 	GOptionEntry entries[] = {
-		{"host", 'h', 0, G_OPTION_ARG_STRING, &data->host, "Host", "HOST"},
-		{"username", 'u', 0, G_OPTION_ARG_STRING, &data->username, "Username", "STR"},
-		{"password", 'p', 0, G_OPTION_ARG_STRING, &data->password, "Password", "STR"},
+		{
+            "host",
+            'h',
+            0,
+            G_OPTION_ARG_STRING,
+            &data->host,
+            "Host",
+            "HOST"
+        },
+		{
+            "username",
+            'u',
+            0,
+            G_OPTION_ARG_STRING,
+            &data->username,
+            "Username",
+            "STR"
+        },
+		{
+            "password",
+            'p',
+            0,
+            G_OPTION_ARG_STRING,
+            &data->password,
+            "Password",
+            "STR"
+        },
 		{NULL}
 	};
 
@@ -405,7 +441,8 @@ int main(int argc, char *argv[])
 
 	/* MySQL library initialization */
 	if (mysql_library_init(0, NULL, NULL)) {
-		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR, "Couldn't initialize MySQL client library.");
+		g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR,
+            "Couldn't initialize MySQL client library.");
 
 		return -1;
 	}
@@ -458,7 +495,7 @@ static void connection_open(GtkWidget *widget, gpointer data)
 		struct server *serv = tmp->data;
 
 		if ((g_strcmp0(host, serv->host) == 0) &&
-			(g_strcmp0(username, serv->username) == 0)) {
+			    (g_strcmp0(username, serv->username) == 0)) {
 			g_print("This server is already added on the list.\n");
 
 			return;
@@ -561,7 +598,7 @@ static void window_main(GtkApplication *app, gpointer data)
 	gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
 	gtk_container_set_border_width(GTK_CONTAINER(window), 15);
 
-	/* TODO: for some reason, window remains is resizable */
+	/* TODO: for some reason, window remains resizable */
 	gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
 
 	g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
@@ -608,7 +645,8 @@ static void window_main(GtkApplication *app, gpointer data)
 	selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
 	gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
 
-	g_signal_connect(view, "button-press-event", G_CALLBACK(servers_menu_call), wrap_data);
+	g_signal_connect(view, "button-press-event",
+        G_CALLBACK(servers_menu_call), wrap_data);
 
 	serv_data->servers_view = GTK_TREE_VIEW(view);
 	serv_data->servers_store = store;
@@ -618,7 +656,8 @@ static void window_main(GtkApplication *app, gpointer data)
 	/* button "Add server" */
 	button_add_server = gtk_button_new_with_label("Add server");
 
-	g_signal_connect(button_add_server, "clicked", G_CALLBACK(connection_open), wrap_data);
+	g_signal_connect(button_add_server, "clicked",
+        G_CALLBACK(connection_open), wrap_data);
 
 	/* passing the user arguments */
 	if (args_data->username && args_data->password) {
@@ -627,8 +666,10 @@ static void window_main(GtkApplication *app, gpointer data)
 		else
 			gtk_entry_set_text(GTK_ENTRY(serv_data->host), "localhost");
 
-		gtk_entry_set_text(GTK_ENTRY(serv_data->username), args_data->username);
-		gtk_entry_set_text(GTK_ENTRY(serv_data->password), args_data->password);
+		gtk_entry_set_text(GTK_ENTRY(serv_data->username),
+            args_data->username);
+		gtk_entry_set_text(GTK_ENTRY(serv_data->password),
+            args_data->password);
 
 		g_signal_emit_by_name(button_add_server, "clicked");
 
@@ -640,7 +681,8 @@ static void window_main(GtkApplication *app, gpointer data)
 	/* button "Connect" */
 	button_connect = gtk_button_new_with_label("Connect");
 
-	g_signal_connect(button_connect, "clicked", G_CALLBACK(server_selected), wrap_data);
+	g_signal_connect(button_connect, "clicked",
+        G_CALLBACK(server_selected), wrap_data);
 
 	/* place widgets onto the grid */
 	gtk_grid_attach(GTK_GRID(grid), label_host, 0, 0, 1, 1);
@@ -751,7 +793,8 @@ static void window_databases(GtkApplication *app, MYSQL *con)
 
 	wrap_data->data = sel_data;
 
-	g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected), wrap_data);
+	g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected),
+        wrap_data);
 
 	gtk_box_pack_start(GTK_BOX(box), scroll_window, TRUE, TRUE, 1);
 	gtk_box_pack_start(GTK_BOX(box), button_disconnect, FALSE, FALSE, 1);
@@ -779,7 +822,8 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	gint y;
 	gint vls_n;
 
-	title = g_strdup_printf("%s->%s ('%s'@'%s')", con->db, tb_name, con->user, con->host);
+	title = g_strdup_printf("%s->%s ('%s'@'%s')", con->db, tb_name,
+        con->user, con->host);
 
 	/* create a window */
 	window = gtk_application_window_new(app);
@@ -814,8 +858,9 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 	vls_res = mysql_store_result(con);
 
 	/* I think that edit table is impossible here.
-	 * My idea: connect key press signal to each entry and get its position
-	 * like (0 + x), then change row by (0 + y) index (MYSQL_ROW is two-dimensional array).
+	 * My idea: connect key press signal to each entry
+     * and get its position like (0 + x), then change row
+     * by (0 + y) index (MYSQL_ROW is two-dimensional array).
 	 * But how to get the entry position? */
 
 	/* fill the columns names */
@@ -919,8 +964,10 @@ static void table_selected(GtkWidget *widget, gpointer data)
 						gchar *value;
 						gchar *cmd;
 
-						if (gtk_tree_model_iter_parent(model, &parent, &iter)) {
-							gtk_tree_model_get(model, &parent, COLUMN, &value, -1);
+						if (gtk_tree_model_iter_parent(model, &parent,
+                                &iter)) {
+							gtk_tree_model_get(model, &parent, COLUMN,
+                                &value, -1);
 
 							cmd = g_strdup_printf("use %s", value);
 							if (mysql_query(con, cmd))
@@ -930,7 +977,8 @@ static void table_selected(GtkWidget *widget, gpointer data)
 							con->db = g_strdup(value);
 
 							/* now, value is table name */
-							gtk_tree_model_get(model, &iter, COLUMN, &value, -1);
+							gtk_tree_model_get(model, &iter, COLUMN,
+                                &value, -1);
 							window_table(app, con, value);
 
 							g_free(value);
