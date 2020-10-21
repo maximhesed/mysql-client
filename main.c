@@ -49,6 +49,8 @@ static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
 static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
 static void servers_menu_item_info(GtkWidget *widget, gpointer data);
 
+static void data_validate(GtkWidget *widget, gpointer data);
+
 /* servers menu */
 static void servers_menu_view(gpointer data)
 {
@@ -440,6 +442,25 @@ int main(int argc, char *argv[])
     return status;
 }
 
+static void data_validate(GtkWidget *widget, gpointer data){
+
+  if(widget){
+    gchar *text = (gchar*) gtk_entry_get_text(GTK_ENTRY(widget));
+    if(!strlen(text)){
+      GtkWidget *dialog = gtk_message_dialog_new(NULL,
+          GTK_DIALOG_MODAL,
+          GTK_MESSAGE_ERROR,
+          GTK_BUTTONS_OK,
+          "Type the entry");
+      gtk_dialog_run(GTK_DIALOG(dialog));
+      gtk_widget_destroy(dialog);
+      return ;
+    }
+  }
+
+  gtk_widget_grab_focus(GTK_WIDGET(data));
+}
+
 static void connection_open(GtkWidget *widget, gpointer data)
 {
     (void) widget;
@@ -488,20 +509,36 @@ static void connection_open(GtkWidget *widget, gpointer data)
         return;
     }
 
-    g_print("Username: %s\n", username);
-    g_print("Password: ******\n");
-    g_print("Connecting to %s...\n", host);
+    do{
+        g_print("Username: %s\n", username);
+        g_print("Password: ******\n");
+        g_print("Connecting to %s...\n", host);
 
-    /* connecting */
-    if (mysql_real_connect(con,
-            host,
-            username,
-            password,
-            NULL, 0, NULL, 0) == NULL) {
-        connection_terminate(con);
+        /* connecting */
+        if (mysql_real_connect(con,
+              host,
+              username,
+              password,
+              NULL, 0, NULL, 0) == NULL) {
 
-        return;
-    }
+              //shows a dialog to try connect again
+              GtkWidget *dialog = gtk_message_dialog_new(NULL,
+                  GTK_DIALOG_MODAL,
+                  GTK_MESSAGE_QUESTION,
+                  GTK_BUTTONS_YES_NO,
+                  "Can't connect! Try again?");
+
+              int res = gtk_dialog_run(GTK_DIALOG(dialog));
+              gtk_widget_destroy(dialog);
+              switch (res) {
+                case GTK_RESPONSE_YES:
+                  continue;
+                case GTK_RESPONSE_NO:
+                  return connection_terminate(con);
+              }
+              connection_terminate(con);
+            }
+    }while(1);
 
     g_print("Successfully connected!\n");
 
@@ -671,6 +708,9 @@ static void window_main(GtkApplication *app, gpointer data)
     gtk_widget_show_all(window);
 
     g_object_unref(G_OBJECT(store));
+    g_signal_connect(serv_data->host,"activate",G_CALLBACK(data_validate),serv_data->username);
+    g_signal_connect(serv_data->username,"activate",G_CALLBACK(data_validate),serv_data->password);
+    g_signal_connect(serv_data->password,"activate",G_CALLBACK(data_validate),button_add_server);
 
     gtk_main();
 }
@@ -1153,9 +1193,10 @@ static GtkWidget * databases_view_create(MYSQL *con)
 
 static void connection_terminate(MYSQL *con)
 {
-    g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
-
-    connection_close(NULL, con);
+    if(con){
+      g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
+      connection_close(NULL, con);
+    }
 }
 
 static void connection_error(MYSQL *con)
