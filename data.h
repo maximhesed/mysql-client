@@ -4,44 +4,44 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 
-/* data which will passed everywhere auxiliary objects is needed */
-struct wrapped_data {
+/* A data which will passed everywhere the auxiliary objects is needed. */
+struct wrap_data {
     GObject *app;
-    GObject *window;
+    GObject *win;
     gpointer data;
 };
 
-struct server_data {
+struct con_data {
     GtkWidget *host;
-    GtkWidget *username;
-    GtkWidget *password;
-    GList *servers_list; /* keep array of the server structures */
+    GtkWidget *uname;
+    GtkWidget *passw;
+    GList *clist; /* Keep an array of the server structures. */
     MYSQL *con;
 
-    /* extra */
-    GtkTreeView *servers_view;
-    GtkListStore *servers_store;
+    /* An extra. */
+    GtkTreeView *cview;
+    GtkListStore *cstore;
 };
 
-/* Server structure. It needs for appending data on the list.
- * It's data will used for create connection when user
- * want connect to the server from servers list. */
-struct server {
+/* A server information structure. It needs for appending a data on a list.
+ * This data will used for a connection creating, when a user wants to
+ * connect to a server from a server list. */
+struct con_info {
     gchar *host;
-    gchar *username;
-    gchar *password;
+    gchar *uname;
+    gchar *passw;
     gchar *name;
 };
 
-struct selection_data {
-    GtkTreeSelection *selection;
+struct sel_data {
+    GtkTreeSelection *sel;
     MYSQL *con;
 };
 
 struct args_data {
     const gchar *host;
-    const gchar *username;
-    const gchar *password;
+    const gchar *uname;
+    const gchar *passw;
 };
 
 #endif /* DATA_H */

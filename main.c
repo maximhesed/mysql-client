@@ -1,378 +1,57 @@
 #include <gtk/gtk.h>
 #include <mysql.h>
 #include <termios.h>
+#include <string.h>
 
 #include "data.h"
 
-#define BUTTON_RIGHT 3
-#define KEY_RETURN 0xFF0D
+#define BUTTON_RIGHT 0x3
 
-/* TODO: It's temporary solution, while i seek the way make independent
- * size of the window, but so that its size didn't be very large. */
+/* TODO: It's a temporary solution, while I'm looking for a way to make an
+ * independent size of a window, but so, that an its size isn't too large. */
 #define WIN_DBS_X 650
 #define WIN_DBS_Y 550
 #define WIN_TBS_X 500
 #define WIN_TBS_Y 600
 
 enum {
-    COLUMN = 0,
+    COLUMN,
     NUM_COLS
 };
 
-/* callbacks */
-static void application_quit(GtkWidget *widget, gpointer data);
-static void connection_open(GtkWidget *widget, gpointer data);
-static void connection_close(GtkWidget *widget, gpointer data);
-static void server_selected(GtkWidget *widget, gpointer data);
-static void window_main(GtkApplication *app, gpointer data);
-static void table_selected(GtkWidget *widget, gpointer data);
-static void free_data(GtkWidget *widget, gpointer data);
-static void free_servers_list(GtkWidget *widget, gpointer data);
-
-/* direct calls */
-static void connection_terminate(MYSQL *con);
-static void connection_error(MYSQL *con);
-static GtkWidget * servers_view_create(GtkListStore *store);
-static void servers_store_add_server(GtkListStore **store,
-    const gchar *s_name);
-static void window_databases(GtkApplication *app, MYSQL *con);
-static void window_table(GtkApplication *app, MYSQL *con,
-    const gchar *tb_name);
-static GtkTreeModel * databases_get(MYSQL *con);
-static GtkWidget * databases_view_create(MYSQL *con);
-
-/* servers popup menu */
-static void servers_menu_view(gpointer data);
-static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev,
-    gpointer data);
-static void servers_menu_item_rename(GtkWidget *widget, gpointer data);
-static void servers_menu_item_remove(GtkWidget *widget, gpointer data);
-static void servers_menu_item_info(GtkWidget *widget, gpointer data);
-
-/* servers menu */
-static void servers_menu_view(gpointer data)
-{
-    GtkWidget *menu;
-    GtkWidget *item_rename;
-    GtkWidget *item_remove;
-    GtkWidget *item_info;
-
-    menu = gtk_menu_new();
-    item_rename = gtk_menu_item_new_with_label("rename");
-    item_remove = gtk_menu_item_new_with_label("remove");
-    item_info = gtk_menu_item_new_with_label("info");
-
-    g_signal_connect(item_rename, "activate",
-        G_CALLBACK(servers_menu_item_rename), data);
-    g_signal_connect(item_remove, "activate",
-        G_CALLBACK(servers_menu_item_remove), data);
-    g_signal_connect(item_info, "activate",
-        G_CALLBACK(servers_menu_item_info), data);
-
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_rename);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_remove);
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_info);
-
-    gtk_widget_show_all(menu);
-
-    gtk_menu_popup_at_pointer(GTK_MENU(menu), NULL);
-}
-
-/* servers menu handler */
-static gboolean servers_menu_call(GtkWidget *widget, GdkEventButton *ev,
-    gpointer data)
-{
-    (void) widget;
-
-    if (ev->type == GDK_BUTTON_PRESS && ev->button == BUTTON_RIGHT) {
-        GtkTreeSelection *selection;
-        GtkTreeModel *model;
-        struct wrapped_data *wrap_data = data;
-        struct server_data *serv_data = wrap_data->data;
-        GList *rows = NULL;
-
-        selection = gtk_tree_view_get_selection(serv_data->servers_view);
-        model = gtk_tree_view_get_model(serv_data->servers_view);
-
-        rows = gtk_tree_selection_get_selected_rows(selection, &model);
-        if (rows) {
-            servers_menu_view(data);
-
-            g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
-
-            return TRUE;
-        }
-    }
-
-    return FALSE;
-}
-
-/* rename selected item from the servers list */
-static void servers_menu_item_rename(GtkWidget *widget, gpointer data)
-{
-    (void) widget;
-
-    GtkWidget *dialog;
-    GtkWidget *content_area;
-    GtkWidget *entry;
-    GtkTreeSelection *selection;
-    GtkTreeModel *model;
-    GtkTreeIter iter;
-    GtkTreePath *path;
-    GtkWindow *window;
-    gint result;
-    gint *index;
-    const gchar *s_name;
-    struct wrapped_data *wrap_data = data;
-    struct server_data *serv_data = wrap_data->data;
-    struct server *serv;
-
-    window = GTK_WINDOW(wrap_data->window);
-
-    dialog = gtk_dialog_new_with_buttons("Rename", window, GTK_DIALOG_MODAL,
-        "OK", GTK_RESPONSE_ACCEPT,
-        "Cancel", GTK_RESPONSE_REJECT,
-        NULL);
-
-    entry = gtk_entry_new();
-
-    /* dialog content area */
-    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-
-    gtk_container_add(GTK_CONTAINER(content_area), entry);
-
-    gtk_widget_show_all(dialog);
-
-    /* run the dialog */
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-
-    switch (result) {
-    case GTK_RESPONSE_ACCEPT:
-        selection = gtk_tree_view_get_selection(serv_data->servers_view);
-        gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
-
-        if (!gtk_tree_selection_get_selected(selection, &model, &iter))
-            break;
-
-        /* get selection index */
-        path = gtk_tree_model_get_path(model, &iter);
-        index = gtk_tree_path_get_indices(path);
-
-        serv = g_list_nth_data(serv_data->servers_list, index[0]);
-
-        s_name = gtk_entry_get_text(GTK_ENTRY(entry));
-        gtk_list_store_set(serv_data->servers_store, &iter, COLUMN,
-            s_name, -1);
-
-        serv->name = g_strdup(s_name);
-
-        gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
-
-        gtk_tree_path_free(path);
-
-        break;
-    default:
-        break;
-    }
-
-    gtk_widget_destroy(dialog);
-}
-
-/* remove selected item(s) from the servers list */
-static void servers_menu_item_remove(GtkWidget *widget, gpointer data)
-{
-    (void) widget;
-
-    GtkWidget *dialog;
-    GtkWindow *window;
-    GtkListStore *store;
-    GtkTreeIter iter;
-    GtkTreePath *path;
-    GtkTreeModel *model;
-    GtkTreeSelection *selection;
-    GtkTreeRowReference *row_ref;
-    gint result;
-    gint *index;
-    struct wrapped_data *wrap_data = data;
-    struct server_data *serv_data = wrap_data->data;
-    struct server *serv;
-    GList *rr_list = NULL;
-    GList *node;
-    GList *tmp;
-    GList *rows;
-
-    window = GTK_WINDOW(wrap_data->window);
-
-    dialog = gtk_message_dialog_new(window,
-        GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_YES_NO,
-        "You really want remove it?");
-
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-
-    switch (result) {
-    case GTK_RESPONSE_YES:
-        model = gtk_tree_view_get_model(serv_data->servers_view);
-        selection = gtk_tree_view_get_selection(serv_data->servers_view);
-        store = serv_data->servers_store;
-
-        rows = gtk_tree_selection_get_selected_rows(selection, &model);
-        if (rows == NULL)
-            break;
-
-        /* "turn over" list to delete items, beginning from the end */
-        rows = g_list_reverse(rows);
-
-        /* create rows refereces to safely modify tree model */
-        for (node = rows; node; node = node->next) {
-            path = node->data;
-
-            if (path) {
-                row_ref = gtk_tree_row_reference_new(model, path);
-                rr_list = g_list_append(rr_list, row_ref);
-
-                /* remove server from the servers list */
-                index = gtk_tree_path_get_indices(path);
-
-                tmp = g_list_nth(serv_data->servers_list, index[0]);
-                serv_data->servers_list = g_list_remove_link(
-                    serv_data->servers_list, tmp);
-                serv = tmp->data;
-
-                /* free server data */
-                g_free(serv->host);
-                g_free(serv->username);
-                g_free(serv->password);
-                g_free(serv->name);
-                g_free(serv);
-
-                /* free temp list because it's has
-                 * allocated by g_list_nth() */
-                g_list_free(tmp);
-            }
-        }
-
-        /* remove servers from the servers store */
-        for (node = rr_list; node; node = node->next) {
-            path = gtk_tree_row_reference_get_path(node->data);
-
-            if (path) {
-                if (gtk_tree_model_get_iter(model, &iter, path))
-                    gtk_list_store_remove(store, &iter);
-            }
-        }
-
-        g_list_free_full(rr_list,
-            (GDestroyNotify) gtk_tree_row_reference_free);
-        g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
-
-        break;
-    default:
-        break;
-    }
-
-    gtk_widget_destroy(dialog);
-}
-
-/* show selected server info */
-static void servers_menu_item_info(GtkWidget *widget, gpointer data)
-{
-    (void) widget;
-
-    GtkWidget *dialog;
-    GtkWidget *content_area;
-    GtkWidget *label_host;
-    GtkWidget *label_username;
-    GtkWidget *box;
-    GtkWindow *window;
-    GtkTreeModel *model;
-    GtkTreeSelection *selection;
-    GtkTreeIter iter;
-    GtkTreePath *path;
-    gint *index;
-    struct wrapped_data *wrap_data = data;
-    struct server_data *serv_data = wrap_data->data;
-    struct server *serv;
-    gchar *host;
-    gchar *username;
-
-    window = GTK_WINDOW(wrap_data->window);
-
-    selection = gtk_tree_view_get_selection(serv_data->servers_view);
-    gtk_tree_selection_set_mode(selection, GTK_SELECTION_SINGLE);
-
-    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
-        return;
-
-    path = gtk_tree_model_get_path(model, &iter);
-    index = gtk_tree_path_get_indices(path);
-
-    serv = g_list_nth_data(serv_data->servers_list, index[0]);
-
-    gtk_tree_path_free(path);
-
-    dialog = gtk_dialog_new_with_buttons("Info", window, GTK_DIALOG_MODAL,
-        NULL, NULL);
-
-    /* content area */
-    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-
-    /* box */
-    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_container_add(GTK_CONTAINER(content_area), box);
-
-    /* labels */
-    host = g_strdup_printf("Host: %s", serv->host);
-    username = g_strdup_printf("Username: %s", serv->username);
-
-    label_host = gtk_label_new(host);
-    label_username = gtk_label_new(username);
-
-    gtk_label_set_xalign(GTK_LABEL(label_host), 0.0);
-    gtk_label_set_xalign(GTK_LABEL(label_username), 0.0);
-
-    gtk_box_pack_start(GTK_BOX(box), label_host, TRUE, TRUE, 2);
-    gtk_box_pack_start(GTK_BOX(box), label_username, TRUE, TRUE, 2);
-
-    gtk_widget_show_all(dialog);
-
-    g_free(host);
-    g_free(username);
-
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
-}
-
-static void application_quit(GtkWidget *widget, gpointer data)
-{
-    (void) widget;
-
-    GtkApplication *app = data;
-
-    /* close all opened windows */
-    GList *list = gtk_application_get_windows(app);
-    GList *head = list;
-    GList *tmp;
-
-    /* TODO: gtk_application_remove_window()? */
-    while (head != NULL) {
-        tmp = head, head = head->next;
-        gtk_widget_destroy(GTK_WIDGET(tmp->data));
-    }
-
-    g_application_quit(G_APPLICATION(app));
-}
+static void application_quit(GtkWidget *wdg, gpointer data);
+static void con_assert(MYSQL *con);
+static void con_close(GtkWidget *wdg, gpointer data);
+static void con_open(GtkWidget *wdg, gpointer data);
+static void con_warn(MYSQL *con);
+static gboolean connect(MYSQL *con, const struct con_info *ci);
+static GtkTreeModel * dbs_get(MYSQL *con);
+static GtkWidget * dbs_view_create(MYSQL *con);
+static void free_data(GtkWidget *wdg, gpointer data);
+static void free_clist(GtkWidget *wdg, gpointer data);
+static void item_info_cb(GtkWidget *wdg, gpointer data);
+static void item_remove_cb(GtkWidget *wdg, gpointer data);
+static void item_rename_cb(GtkWidget *wdg, gpointer data);
+static void con_sel_cb(GtkWidget *wdg, gpointer data);
+static GtkWidget * con_view_create(GtkListStore *store);
+static gboolean smenu_cb(GtkWidget *wdg, GdkEventButton *ev, gpointer data);
+static void smenu_view(gpointer data);
+static void table_sel_cb(GtkWidget *wdg, gpointer data);
+static void win_dbs(GtkApplication *app, MYSQL *con);
+static void win_main(GtkApplication *app, gpointer data);
+static void win_table(GtkApplication *app, MYSQL *con, const gchar *tb_name);
 
 int main(int argc, char *argv[])
 {
     GtkApplication *app;
-    struct args_data *data = g_malloc0(sizeof(struct args_data));
+    struct args_data *ad = g_malloc0(sizeof(struct args_data));
     GOptionEntry entries[] = {
         {
             "host",
             'h',
             0,
             G_OPTION_ARG_STRING,
-            &data->host,
+            &ad->host,
             "Host",
             "HOST"
         },
@@ -381,7 +60,7 @@ int main(int argc, char *argv[])
             'u',
             0,
             G_OPTION_ARG_STRING,
-            &data->username,
+            &ad->uname,
             "Username",
             "STR"
         },
@@ -390,17 +69,19 @@ int main(int argc, char *argv[])
             'p',
             0,
             G_OPTION_ARG_STRING,
-            &data->password,
+            &ad->passw,
             "Password",
             "STR"
         },
-        {NULL}
+        {
+            NULL
+        }
     };
     GError *error = NULL;
     GOptionContext *context;
-    gint status;
+    int status;
 
-    /* parse extra user arguments */
+    /* Parse the user arguments. */
     context = g_option_context_new(NULL);
     g_option_context_add_main_entries(context, entries, NULL);
     g_option_context_add_group(context, gtk_get_option_group(TRUE));
@@ -412,373 +93,639 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    /* check MySQL version */
-    g_log(G_LOG_DOMAIN, G_LOG_LEVEL_INFO, "MySQL client version: %s",
+    /* Check a MySQL version. */
+    g_log(G_LOG_DOMAIN, G_LOG_LEVEL_INFO, "A MySQL client version: %s.",
         mysql_get_client_info());
 
-    /* MySQL library initialization */
+    /* Init the MySQL library. */
     if (mysql_library_init(0, NULL, NULL)) {
         g_log(G_LOG_DOMAIN, G_LOG_LEVEL_ERROR,
-            "Couldn't initialize MySQL client library.");
+            "Couldn't initialize the MySQL client library.");
 
         return -1;
     }
 
-    /* launch application */
-    app = gtk_application_new("org.gtk.dbviewer", G_APPLICATION_FLAGS_NONE);
-    g_signal_connect(app, "activate", G_CALLBACK(window_main), data);
-    g_signal_connect(app, "shutdown", G_CALLBACK(free_data), data);
+    /* Run the application. */
+    app = gtk_application_new(NULL, G_APPLICATION_FLAGS_NONE);
+    g_signal_connect(app, "activate", G_CALLBACK(win_main), ad);
+    g_signal_connect(app, "shutdown", G_CALLBACK(free_data), ad);
     status = g_application_run(G_APPLICATION(app), 0, NULL);
 
     g_object_unref(app);
 
     mysql_library_end();
 
-    /* flush all input */
+    /* Flush an all input. */
     tcflush(STDOUT_FILENO, TCIFLUSH);
 
     return status;
 }
 
-static void connection_open(GtkWidget *widget, gpointer data)
+static void
+win_main(GtkApplication *app, gpointer data)
 {
-    (void) widget;
-
-    GtkApplication *app;
-    GList *tmp;
-    MYSQL *con = NULL;
-    const gchar *host;
-    const gchar *username;
-    const gchar *password;
-    struct wrapped_data *wrap_data = data;
-    struct server_data *serv_data = wrap_data->data;
-    struct server *serv = g_malloc0(sizeof(struct server));
-
-    app = GTK_APPLICATION(wrap_data->app);
-
-    /* get user input from received data */
-    host = gtk_entry_get_text(GTK_ENTRY(serv_data->host));
-    username = gtk_entry_get_text(GTK_ENTRY(serv_data->username));
-    password = gtk_entry_get_text(GTK_ENTRY(serv_data->password));
-
-    /* don't connect if passed data already located in the servers list */
-    tmp = serv_data->servers_list;
-
-    while (tmp != NULL) {
-        struct server *serv = tmp->data;
-
-        if ((g_strcmp0(host, serv->host) == 0) &&
-                (g_strcmp0(username, serv->username) == 0)) {
-            g_print("This server is already added on the list.\n");
-
-            return;
-        }
-
-        tmp = tmp->next;
-    }
-
-    if (g_strcmp0(host, "") == 0 || g_strcmp0(username, "") == 0)
-        return;
-
-    /* create new active connection */
-    con = mysql_init(con);
-    if (con == NULL) {
-        connection_terminate(con);
-
-        return;
-    }
-
-    g_print("Username: %s\n", username);
-    g_print("Password: ******\n");
-    g_print("Connecting to %s...\n", host);
-
-    /* connecting */
-    if (mysql_real_connect(con,
-            host,
-            username,
-            password,
-            NULL, 0, NULL, 0) == NULL) {
-        connection_terminate(con);
-
-        return;
-    }
-
-    g_print("Successfully connected!\n");
-
-    /* Connection established here,
-     * so pass connection handle into connection data. */
-
-    serv_data->con = con;
-
-    /* fill server */
-    serv->host = g_strdup(host);
-    serv->username = g_strdup(username);
-    serv->password = g_strdup(password);
-    serv->name = g_strdup_printf(serv->username);
-
-    /* to name the server */
-    servers_store_add_server(&serv_data->servers_store, serv->name);
-
-    /* append the server to the servers list */
-    serv_data->servers_list = g_list_append(serv_data->servers_list, serv);
-
-    window_databases(app, serv_data->con);
-}
-
-static void connection_close(GtkWidget *widget, gpointer data)
-{
-    (void) widget;
-
-    MYSQL *con = data;
-
-    if (con != NULL) {
-        g_print("Close connection...\n");
-
-        if (con->db) {
-            g_free(con->db);
-            con->db = NULL;
-        }
-
-        mysql_close(con);
-        con = NULL;
-    }
-}
-
-static void window_main(GtkApplication *app, gpointer data)
-{
-    (void) data;
-
-    GtkWidget *window;
+    GtkWidget *win;
     GtkWidget *label_host;
-    GtkWidget *label_username;
+    GtkWidget *label_uname;
     GtkWidget *label_password;
-    GtkWidget *button_add_server;
-    GtkWidget *button_connect;
+    GtkWidget *btn_con_add;
+    GtkWidget *btn_con_open;
     GtkWidget *grid;
     GtkWidget *view;
     GtkListStore *store;
-    GtkTreeSelection *selection;
-    struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
-    struct server_data *serv_data = g_malloc0(sizeof(struct server_data));
-    struct args_data *args_data = data;
+    GtkTreeSelection *sel;
+    struct wrap_data *wd = g_malloc(sizeof(struct wrap_data));
+    struct con_data *cd = g_malloc0(sizeof(struct con_data));
+    struct args_data *ad = data;
 
-    serv_data->con = NULL;
+    cd->con = NULL;
 
-    /* create a window */
-    window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(window), "Login");
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_container_set_border_width(GTK_CONTAINER(window), 15);
+    /* Init the window. */
+    win = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(win), "Login");
+    gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
+    gtk_container_set_border_width(GTK_CONTAINER(win), 15);
 
-    /* TODO: for some reason, window remains resizable */
-    gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
+    /* TODO: For a some reason, the window remains resizable. */
+    gtk_window_set_resizable(GTK_WINDOW(win), FALSE);
+    gtk_widget_set_hexpand(win, FALSE);
+    gtk_widget_set_vexpand(win, FALSE);
+    gtk_widget_set_halign(win, GTK_ALIGN_START);
+    gtk_widget_set_valign(win, GTK_ALIGN_START);
 
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_servers_list),
-        serv_data->servers_list);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), serv_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(application_quit), app);
+    g_signal_connect(win, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), wd);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_clist), cd->clist);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), cd);
+    g_signal_connect(win, "destroy", G_CALLBACK(application_quit), app);
 
-    wrap_data->app = G_OBJECT(app);
-    wrap_data->window = G_OBJECT(window);
+    wd->app = G_OBJECT(app);
+    wd->win = G_OBJECT(win);
 
-    /* hang a grid */
+    /* Init the grid. */
     grid = gtk_grid_new();
-    gtk_container_add(GTK_CONTAINER(window), grid);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 10);
     gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
+    gtk_container_add(GTK_CONTAINER(win), grid);
 
-    /* labels */
-    label_host = gtk_label_new("Host: ");
-    label_username = gtk_label_new("Username: ");
-    label_password = gtk_label_new("Password: ");
+    /* Init the labels. */
+    label_host = gtk_label_new("Host ");
+    label_uname = gtk_label_new("Username ");
+    label_password = gtk_label_new("Password ");
 
     gtk_label_set_xalign(GTK_LABEL(label_host), 0);
-    gtk_label_set_xalign(GTK_LABEL(label_username), 0);
+    gtk_label_set_xalign(GTK_LABEL(label_uname), 0);
     gtk_label_set_xalign(GTK_LABEL(label_password), 0);
 
-    /* entries */
-    serv_data->host = gtk_entry_new();
-    serv_data->username = gtk_entry_new();
-    serv_data->password = gtk_entry_new();
+    /* Init the entries. */
+    cd->host = gtk_entry_new();
+    cd->uname = gtk_entry_new();
+    cd->passw = gtk_entry_new();
 
-    gtk_entry_set_max_length(GTK_ENTRY(serv_data->host), 16);
-    gtk_entry_set_max_length(GTK_ENTRY(serv_data->username), 32);
-    gtk_entry_set_max_length(GTK_ENTRY(serv_data->password), 32);
+    gtk_entry_set_max_length(GTK_ENTRY(cd->host), 16);
+    gtk_entry_set_max_length(GTK_ENTRY(cd->uname), 32);
+    gtk_entry_set_max_length(GTK_ENTRY(cd->passw), 32);
 
-    gtk_entry_set_visibility(GTK_ENTRY(serv_data->password), FALSE);
-    gtk_entry_set_invisible_char(GTK_ENTRY(serv_data->password), L'•');
+    gtk_entry_set_visibility(GTK_ENTRY(cd->passw), FALSE);
+    gtk_entry_set_invisible_char(GTK_ENTRY(cd->passw), L'•');
 
-    /* TODO: disable focus on view */
-    /* create a servers list */
+    /* Init the connection list. */
     store = gtk_list_store_new(NUM_COLS, G_TYPE_STRING);
-    view = servers_view_create(store);
 
-    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
-    gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
+    /* TODO: Disable a focus on the view. */
+    /* Init the view. */
+    view = con_view_create(store);
+    sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_MULTIPLE);
+    g_signal_connect(view, "button-press-event", G_CALLBACK(smenu_cb), wd);
 
-    g_signal_connect(view, "button-press-event",
-        G_CALLBACK(servers_menu_call), wrap_data);
+    cd->cview = GTK_TREE_VIEW(view);
+    cd->cstore = store;
+    wd->data = cd;
 
-    serv_data->servers_view = GTK_TREE_VIEW(view);
-    serv_data->servers_store = store;
+    /* Init the "Add a connection" button. */
+    btn_con_add = gtk_button_new_with_label("Add a connection");
+    g_signal_connect(btn_con_add, "clicked", G_CALLBACK(con_open), wd);
 
-    wrap_data->data = serv_data;
+    /* Work with the user arguments. */
+    if (ad->uname && ad->passw) {
+        const gchar *host = ad->host ? ad->host : "localhost";
 
-    /* button "Add server" */
-    button_add_server = gtk_button_new_with_label("Add server");
+        gtk_entry_set_text(GTK_ENTRY(cd->host), host);
+        gtk_entry_set_text(GTK_ENTRY(cd->uname), ad->uname);
+        gtk_entry_set_text(GTK_ENTRY(cd->passw), ad->passw);
 
-    g_signal_connect(button_add_server, "clicked",
-        G_CALLBACK(connection_open), wrap_data);
+        g_signal_emit_by_name(btn_con_add, "clicked");
 
-    /* passing the user arguments */
-    if (args_data->username && args_data->password) {
-        if (args_data->host)
-            gtk_entry_set_text(GTK_ENTRY(serv_data->host), args_data->host);
-        else
-            gtk_entry_set_text(GTK_ENTRY(serv_data->host), "localhost");
-
-        gtk_entry_set_text(GTK_ENTRY(serv_data->username),
-            args_data->username);
-        gtk_entry_set_text(GTK_ENTRY(serv_data->password),
-            args_data->password);
-
-        g_signal_emit_by_name(button_add_server, "clicked");
-
-        gtk_entry_set_text(GTK_ENTRY(serv_data->host), "");
-        gtk_entry_set_text(GTK_ENTRY(serv_data->username), "");
-        gtk_entry_set_text(GTK_ENTRY(serv_data->password), "");
+        gtk_entry_set_text(GTK_ENTRY(cd->host), "");
+        gtk_entry_set_text(GTK_ENTRY(cd->uname), "");
+        gtk_entry_set_text(GTK_ENTRY(cd->passw), "");
     }
 
-    /* button "Connect" */
-    button_connect = gtk_button_new_with_label("Connect");
+    /* Init the "Open" button. */
+    btn_con_open = gtk_button_new_with_label("Open");
+    g_signal_connect(btn_con_open, "clicked", G_CALLBACK(con_sel_cb), wd);
 
-    g_signal_connect(button_connect, "clicked",
-        G_CALLBACK(server_selected), wrap_data);
+    /* Place the widgets onto the grid. */
+    gtk_grid_attach(GTK_GRID(grid), label_host,     0, 0,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_uname,    0, 1,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cd->host,       1, 0,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cd->uname,      1, 1,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), cd->passw,      1, 2,  1, 1);
+    gtk_grid_attach(GTK_GRID(grid), btn_con_add,    0, 3,  2, 1);
+    gtk_grid_attach(GTK_GRID(grid), view,           2, 0, 15, 3);
+    gtk_grid_attach(GTK_GRID(grid), btn_con_open,   2, 3, 15, 1);
 
-    /* place widgets onto the grid */
-    gtk_grid_attach(GTK_GRID(grid), label_host, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_username, 0, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), label_password, 0, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->host, 1, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->username, 1, 1, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), serv_data->password, 1, 2, 1, 1);
-    gtk_grid_attach(GTK_GRID(grid), button_add_server, 0, 3, 2, 1);
-    gtk_grid_attach(GTK_GRID(grid), view, 2, 0, 15, 3);
-    gtk_grid_attach(GTK_GRID(grid), button_connect, 2, 3, 15, 1);
-
-    gtk_widget_show_all(window);
+    gtk_widget_show_all(win);
 
     g_object_unref(G_OBJECT(store));
 
     gtk_main();
 }
 
-static void free_data(GtkWidget *widget, gpointer data)
+/* The connection menu. */
+static void
+smenu_view(gpointer data)
 {
-    (void) widget;
+    GtkWidget *menu = gtk_menu_new();
+    GtkWidget *items[3] = {
+        gtk_menu_item_new_with_label("rename"),
+        gtk_menu_item_new_with_label("remove"),
+        gtk_menu_item_new_with_label("info")
+    };
+    int i;
 
+    g_signal_connect(items[0], "activate", G_CALLBACK(item_rename_cb), data);
+    g_signal_connect(items[1], "activate", G_CALLBACK(item_remove_cb), data);
+    g_signal_connect(items[2], "activate", G_CALLBACK(item_info_cb), data);
+
+    for (i = 0; i < 3; i++)
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), items[i]);
+
+    gtk_menu_popup_at_pointer(GTK_MENU(menu), NULL);
+
+    gtk_widget_show_all(menu);
+}
+
+/* A connection menu's handler. */
+static gboolean
+smenu_cb(GtkWidget *wdg, GdkEventButton *ev, gpointer data)
+{
+    if (ev->type == GDK_BUTTON_PRESS && ev->button == BUTTON_RIGHT) {
+        GtkTreeSelection *sel;
+        GtkTreeModel *model;
+        struct wrap_data *wd = data;
+        struct con_data *cd = wd->data;
+        GList *rows = NULL;
+
+        sel = gtk_tree_view_get_selection(cd->cview);
+        model = gtk_tree_view_get_model(cd->cview);
+
+        rows = gtk_tree_selection_get_selected_rows(sel, &model);
+        if (rows) {
+            smenu_view(data);
+
+            g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
+
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+/* Rename a selected item from the connection list. */
+static void
+item_rename_cb(GtkWidget *wdg, gpointer data)
+{
+    GtkWidget *dialog;
+    GtkWidget *content_area;
+    GtkWidget *entry;
+    GtkTreeSelection *sel;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    GtkTreePath *path;
+    GtkWindow *win;
+    int *index;
+    struct wrap_data *wd = data;
+    struct con_data *cd = wd->data;
+    struct con_info *ci;
+
+    win = GTK_WINDOW(wd->win);
+    dialog = gtk_dialog_new_with_buttons(
+        "Rename",
+        win,
+        GTK_DIALOG_MODAL,
+        "OK",
+        GTK_RESPONSE_ACCEPT,
+        "Cancel",
+        GTK_RESPONSE_REJECT,
+        NULL);
+
+    sel = gtk_tree_view_get_selection(cd->cview);
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_SINGLE);
+    gtk_tree_selection_get_selected(sel, &model, &iter);
+
+    path = gtk_tree_model_get_path(model, &iter);
+    index = gtk_tree_path_get_indices(path);
+
+    ci = g_list_nth_data(cd->clist, index[0]);
+
+    /* Init the entry. */
+    entry = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(entry), ci->name);
+
+    /* Init the content area. */
+    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    gtk_container_add(GTK_CONTAINER(content_area), entry);
+    gtk_widget_show_all(dialog);
+
+    /* Run a dialog. */
+    switch (gtk_dialog_run(GTK_DIALOG(dialog))) {
+        case GTK_RESPONSE_ACCEPT:
+            ci->name = g_strdup(gtk_entry_get_text(GTK_ENTRY(entry)));
+
+            gtk_list_store_set(cd->cstore, &iter, COLUMN, ci->name, -1);
+
+            break;
+
+        default:
+            break;
+    }
+
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_MULTIPLE);
+    gtk_tree_path_free(path);
+
+    gtk_widget_destroy(dialog);
+}
+
+/* Remove the selected items from the connection list. */
+static void
+item_remove_cb(GtkWidget *wdg, gpointer data)
+{
+    GtkWidget *dialog;
+    GtkWindow *win;
+    GtkTreeIter iter;
+    GtkTreePath *path;
+    GtkTreeModel *model;
+    GtkTreeSelection *sel;
+    GtkTreeRowReference *row_ref;
+    int result;
+    int *index;
+    struct wrap_data *wd = data;
+    struct con_data *cd = wd->data;
+    struct con_info *ci;
+    GList *rr_list = NULL;
+    GList *node;
+    GList *tmp;
+    GList *rows;
+
+    win = GTK_WINDOW(wd->win);
+    dialog = gtk_message_dialog_new(
+        win,
+        GTK_DIALOG_MODAL,
+        GTK_MESSAGE_WARNING,
+        GTK_BUTTONS_YES_NO,
+        "Are you sure you want to delete this?");
+    result = gtk_dialog_run(GTK_DIALOG(dialog));
+
+    switch (result) {
+        case GTK_RESPONSE_YES:
+            model = gtk_tree_view_get_model(cd->cview);
+            sel = gtk_tree_view_get_selection(cd->cview);
+
+            rows = gtk_tree_selection_get_selected_rows(sel, &model);
+            if (!rows)
+                break;
+
+            /* Create the rows refereces, to modify a tree model safely. */
+            for (node = g_list_reverse(rows); node; node = node->next) {
+                if (path = node->data) {
+                    row_ref = gtk_tree_row_reference_new(model, path);
+                    rr_list = g_list_append(rr_list, row_ref);
+                    index = gtk_tree_path_get_indices(path);
+
+                    tmp = g_list_nth(cd->clist, index[0]);
+                    ci = tmp->data;
+
+                    /* Free a connection data. */
+                    g_free(ci->host);
+                    g_free(ci->uname);
+                    g_free(ci->passw);
+                    g_free(ci->name);
+                    g_free(ci);
+
+                    /* Free the temp list, because it was allocated by the
+                     * g_list_nth(). */
+                    g_list_free(tmp);
+
+                    cd->clist = g_list_remove_link(cd->clist, tmp);
+                }
+            }
+
+            /* Remove the connection from a connection store. */
+            for (node = rr_list; node; node = node->next) {
+                if (path = gtk_tree_row_reference_get_path(node->data)) {
+                    if (gtk_tree_model_get_iter(model, &iter, path))
+                        gtk_list_store_remove(cd->cstore, &iter);
+                }
+            }
+
+            g_list_free_full(rr_list, (GDestroyNotify)
+                gtk_tree_row_reference_free);
+            g_list_free_full(rows, (GDestroyNotify)
+                gtk_tree_path_free);
+
+            break;
+
+        default:
+            break;
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+/* Show a selected connection's info. */
+static void
+item_info_cb(GtkWidget *wdg, gpointer data)
+{
+    GtkWidget *dialog;
+    GtkWidget *content_area;
+    GtkWidget *label_host;
+    GtkWidget *label_uname;
+    GtkWidget *box;
+    GtkWindow *win;
+    GtkTreeModel *model;
+    GtkTreeSelection *sel;
+    GtkTreeIter iter;
+    GtkTreePath *path;
+    int *index;
+    struct wrap_data *wd = data;
+    struct con_data *cd = wd->data;
+    struct con_info *ci;
+    gchar *host;
+    gchar *uname;
+
+    win = GTK_WINDOW(wd->win);
+
+    sel = gtk_tree_view_get_selection(cd->cview);
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_SINGLE);
+    if (!gtk_tree_selection_get_selected(sel, &model, &iter))
+        return;
+
+    path = gtk_tree_model_get_path(model, &iter);
+    index = gtk_tree_path_get_indices(path);
+
+    ci = g_list_nth_data(cd->clist, index[0]);
+    dialog = gtk_dialog_new_with_buttons(
+        "Info",
+        win,
+        GTK_DIALOG_MODAL,
+        NULL,
+        NULL);
+
+    /* Init the content area. */
+    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+    /* Init the box. */
+    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_container_add(GTK_CONTAINER(content_area), box);
+
+    /* Init the labels. */
+    host = g_strdup_printf("Host: %s", ci->host);
+    uname = g_strdup_printf("Username: %s", ci->uname);
+
+    label_host = gtk_label_new(host);
+    label_uname = gtk_label_new(uname);
+
+    gtk_label_set_xalign(GTK_LABEL(label_host), 0.0);
+    gtk_label_set_xalign(GTK_LABEL(label_uname), 0.0);
+
+    gtk_box_pack_start(GTK_BOX(box), label_host, TRUE, TRUE, 2);
+    gtk_box_pack_start(GTK_BOX(box), label_uname, TRUE, TRUE, 2);
+
+    g_free(host);
+    g_free(uname);
+    gtk_tree_path_free(path);
+
+    gtk_widget_show_all(dialog);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+static void
+application_quit(GtkWidget *wdg, gpointer data)
+{
+    GtkApplication *app = data;
+    GList *list = gtk_application_get_windows(app);
+    GList *head;
+
+    /* TODO: Use the gtk_application_remove_window()? */
+    for (head = list; head; head = head->next)
+        gtk_widget_destroy(GTK_WIDGET(head->data));
+
+    g_application_quit(G_APPLICATION(app));
+}
+
+static gboolean
+connect(MYSQL *con, const struct con_info *ci)
+{
+    g_print("Connecting to %s as %s... ", ci->host, ci->uname);
+
+    if (!mysql_real_connect(con, ci->host, ci->uname, ci->passw, NULL, 0,
+            NULL, 0)) {
+        g_print("failed!\n");
+        con_assert(con);
+
+        return FALSE;
+    }
+
+    g_print("OK.\n");
+
+    return TRUE;
+}
+
+static void
+con_open(GtkWidget *wdg, gpointer data)
+{
+    GList *tmp;
+    MYSQL *con = NULL;
+    const gchar *host;
+    const gchar *uname;
+    const gchar *passw;
+    struct wrap_data *wd = data;
+    struct con_data *cd = wd->data;
+    struct con_info *ci = g_malloc0(sizeof(struct con_info));
+    GtkTreeIter iter;
+
+    /* Get a user input from a data received. */
+    host = gtk_entry_get_text(GTK_ENTRY(cd->host));
+    uname = gtk_entry_get_text(GTK_ENTRY(cd->uname));
+    passw = gtk_entry_get_text(GTK_ENTRY(cd->passw));
+
+    /* Don't connect, if a passed data contains in the connection list. */
+    for (tmp = cd->clist; tmp; tmp = tmp->next) {
+        struct con_info *ci = tmp->data;
+
+        if (!g_strcmp0(host, ci->host) && !g_strcmp0(uname, ci->uname)) {
+            g_print("This connection is already added to the list.\n");
+
+            return;
+        }
+    }
+
+    if (!g_strcmp0(host, "") || !g_strcmp0(uname, ""))
+        return;
+
+    /* Create a new active connection. */
+    con = mysql_init(con);
+    if (!con) {
+        g_print("An insufficient memory, to allocate a new MySQL handler.");
+
+        return;
+    }
+
+    if (!connect(con, &(struct con_info) {
+            (gchar *) host,
+            (gchar *) uname,
+            (gchar *) passw,
+            NULL}))
+        return;
+
+    /* A connection has established here. So, pass a connection handle into
+     * a connection data. */
+    cd->con = con;
+
+    /* Store a connection info. */
+    ci->host = g_strdup(host);
+    ci->uname = g_strdup(uname);
+    ci->passw = g_strdup(passw);
+    ci->name = g_strdup(uname);
+
+    gtk_list_store_append(cd->cstore, &iter);
+    gtk_list_store_set(cd->cstore, &iter, COLUMN, uname, -1);
+
+    /* Append a connection to the connection list. */
+    cd->clist = g_list_append(cd->clist, ci);
+}
+
+static void
+con_close(GtkWidget *wdg, gpointer data)
+{
+    MYSQL *con = data;
+
+    if (con->db) {
+        g_free(con->db);
+        con->db = NULL;
+    }
+
+    mysql_close(con);
+    con = NULL;
+}
+
+static void
+free_data(GtkWidget *wdg, gpointer data)
+{
     g_free(data);
 }
 
-static void free_servers_list(GtkWidget *widget, gpointer data)
+static void
+free_clist(GtkWidget *wdg, gpointer data)
 {
-    (void) widget;
+    GList *list;
 
-    GList *list = data;
-    GList *tmp = list;
-    struct server *serv;
+    for (list = data; list; list = list->next) {
+        struct con_info *ci = list->data;
 
-    while (tmp != NULL) {
-        tmp = list, list = list->next;
-        serv = tmp->data;
-
-        g_free(serv->host);
-        g_free(serv->username);
-        g_free(serv->password);
-        g_free(serv->name);
-        g_free(serv);
+        g_free(ci->host);
+        g_free(ci->uname);
+        g_free(ci->passw);
+        g_free(ci->name);
+        g_free(ci);
     }
 
     g_list_free(list);
 }
 
-/* I think, that show tables, based on user permissions not correctly
- * decision, because user has permission to look at the table name. */
-static void window_databases(GtkApplication *app, MYSQL *con)
+/* I think, that a tables showing, based on the user permissions isn't a
+ * correctly decision, because a user has the permission to look at a
+ * table name. */
+static void
+win_dbs(GtkApplication *app, MYSQL *con)
 {
-    GtkWidget *window;
-    GtkWidget *scroll_window;
+    GtkWidget *win;
+    GtkWidget *win_scr;
     GtkWidget *view;
     GtkWidget *box;
-    GtkWidget *button_disconnect;
-    GtkWidget *button_open;
-    GtkTreeSelection *selection;
+    GtkWidget *btn_disconnect;
+    GtkWidget *btn_open;
+    GtkTreeSelection *sel;
     gchar *title;
-    struct wrapped_data *wrap_data = g_malloc(sizeof(struct wrapped_data));
-    struct selection_data *sel_data = g_malloc(sizeof(struct selection_data));
+    struct wrap_data *wd = g_malloc(sizeof(struct wrap_data));
+    struct sel_data *sld = g_malloc(sizeof(struct sel_data));
 
-    wrap_data->app = G_OBJECT(app);
+    wd->app = G_OBJECT(app);
+    title = g_strdup_printf("%s -> %s", con->host, con->user);
 
-    title = g_strdup_printf("Databases ('%s'@'%s')", con->user, con->host);
+    /* Init the window. */
+    win = gtk_application_window_new(app);
+    gtk_window_set_title(GTK_WINDOW(win), title);
+    gtk_window_resize(GTK_WINDOW(win), WIN_DBS_X, WIN_DBS_Y);
+    gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
+    gtk_container_set_border_width(GTK_CONTAINER(win), 15);
 
-    /* create a window */
-    window = gtk_application_window_new(app);
-    gtk_window_set_title(GTK_WINDOW(window), title);
-    gtk_window_resize(GTK_WINDOW(window), WIN_DBS_X, WIN_DBS_Y);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_container_set_border_width(GTK_CONTAINER(window), 15);
+    g_signal_connect(win, "destroy", G_CALLBACK(con_close), con);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), wd);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), sld);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), title);
 
-    g_signal_connect(window, "destroy", G_CALLBACK(connection_close), con);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), wrap_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), sel_data);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), title);
+    /* Init the scrolled window. */
+    win_scr = gtk_scrolled_window_new(NULL, NULL);
 
-    /* create a scrolled window */
-    scroll_window = gtk_scrolled_window_new(NULL, NULL);
-
-    /* box */
+    /* Init the box. */
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_container_add(GTK_CONTAINER(window), box);
+    gtk_container_add(GTK_CONTAINER(win), box);
 
-    /* tree view */
-    view = databases_view_create(con);
+    /* Init the tree view. */
+    view = dbs_view_create(con);
     gtk_tree_view_set_fixed_height_mode(GTK_TREE_VIEW(view), TRUE);
-    gtk_container_add(GTK_CONTAINER(scroll_window), view);
+    gtk_container_add(GTK_CONTAINER(win_scr), view);
 
-    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
-    gtk_tree_selection_set_mode(selection, GTK_SELECTION_MULTIPLE);
+    sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(view));
+    gtk_tree_selection_set_mode(sel, GTK_SELECTION_MULTIPLE);
 
-    /* button "Disconnect" */
-    button_disconnect = gtk_button_new_with_label("Disconnect");
+    /* Init the "Disconnect" button. */
+    btn_disconnect = gtk_button_new_with_label("Disconnect");
 
-    g_signal_connect_swapped(button_disconnect, "clicked",
-        G_CALLBACK(gtk_widget_destroy), window);
+    g_signal_connect_swapped(btn_disconnect, "clicked",
+        G_CALLBACK(gtk_widget_destroy), win);
 
-    /* button "Open" */
-    button_open = gtk_button_new_with_label("Open");
+    /* Init the "Open" button. */
+    btn_open = gtk_button_new_with_label("Open");
+    sld->sel = sel;
+    sld->con = con;
+    wd->data = sld;
 
-    sel_data->selection = selection;
-    sel_data->con = con;
+    g_signal_connect(btn_open, "clicked", G_CALLBACK(table_sel_cb), wd);
 
-    wrap_data->data = sel_data;
+    gtk_box_pack_start(GTK_BOX(box), win_scr, TRUE, TRUE, 1);
+    gtk_box_pack_start(GTK_BOX(box), btn_disconnect, FALSE, FALSE, 1);
+    gtk_box_pack_start(GTK_BOX(box), btn_open, FALSE, FALSE, 1);
 
-    g_signal_connect(button_open, "clicked", G_CALLBACK(table_selected),
-        wrap_data);
-
-    gtk_box_pack_start(GTK_BOX(box), scroll_window, TRUE, TRUE, 1);
-    gtk_box_pack_start(GTK_BOX(box), button_disconnect, FALSE, FALSE, 1);
-    gtk_box_pack_start(GTK_BOX(box), button_open, FALSE, FALSE, 1);
-
-    gtk_widget_show_all(window);
+    gtk_widget_show_all(win);
 }
 
-/* TODO: edit table */
-static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
+/* TODO: I think, that a tables editing is impossible here. But, can
+ * to try to connect a key press signal to an each entry to get
+ * its position like a (0 + x), then to change a row by a
+ * (0 + y) index (MYSQL_ROW is a two-dimensional array). But,
+ * how to get an entry position? */
+static void
+win_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
 {
-    GtkWidget *window;
-    GtkWidget *scroll_window;
+    GtkWidget *win;
+    GtkWidget *win_scr;
     GtkWidget *grid;
     GtkWidget *label;
     MYSQL_RES *vls_res;
@@ -786,56 +733,47 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
     MYSQL_ROW vls_row;
     gchar *cmd;
     gchar *title;
-    gint x;
-    gint y;
-    gint vls_n;
+    int x;
+    int y;
+    int vls_n;
 
-    title = g_strdup_printf("%s->%s ('%s'@'%s')", con->db, tb_name,
-        con->user, con->host);
+    title = g_strdup_printf("%s -> %s -> %s -> %s", con->host, con->user,
+        con->db, tb_name);
 
-    /* create a window */
-    window = gtk_application_window_new(app);
-    gtk_window_resize(GTK_WINDOW(window), WIN_TBS_X, WIN_TBS_Y);
-    gtk_window_set_title(GTK_WINDOW(window), title);
-    gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
-    gtk_window_move(GTK_WINDOW(window), 50, 50);
-    gtk_container_set_border_width(GTK_CONTAINER(window), 15);
+    /* Init the window.. */
+    win = gtk_application_window_new(app);
+    gtk_window_resize(GTK_WINDOW(win), WIN_TBS_X, WIN_TBS_Y);
+    gtk_window_set_title(GTK_WINDOW(win), title);
+    gtk_window_set_position(GTK_WINDOW(win), GTK_WIN_POS_CENTER);
+    gtk_window_move(GTK_WINDOW(win), 50, 50);
+    gtk_container_set_border_width(GTK_CONTAINER(win), 15);
 
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
-    g_signal_connect(window, "destroy", G_CALLBACK(free_data), title);
+    g_signal_connect(win, "destroy", G_CALLBACK(gtk_widget_destroy), NULL);
+    g_signal_connect(win, "destroy", G_CALLBACK(free_data), title);
 
-    /* create a scrolled window */
-    scroll_window = gtk_scrolled_window_new(NULL, NULL);
-    gtk_container_add(GTK_CONTAINER(window), scroll_window);
+    /* Init the scrolled window. */
+    win_scr = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_add(GTK_CONTAINER(win), win_scr);
 
-    /* hang a grid */
+    /* Init the grid. */
     grid = gtk_grid_new();
-    gtk_container_add(GTK_CONTAINER(scroll_window), grid);
+    gtk_container_add(GTK_CONTAINER(win_scr), grid);
     gtk_grid_set_column_spacing(GTK_GRID(grid), 20);
     gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
 
     cmd = g_strdup_printf("select * from `%s`", tb_name);
-    if (mysql_query(con, cmd)) {
-        g_print("Problem with access to the table \"%s\".\n", tb_name);
-
-        connection_error(con);
+    if (mysql_query(con, cmd) != 0) {
+        con_warn(con);
 
         return;
     }
 
+    /* Fill the column names. */
     vls_res = mysql_store_result(con);
-
-    /* I think that edit table is impossible here.
-     * My idea: connect key press signal to each entry
-     * and get its position like (0 + x), then change row
-     * by (0 + y) index (MYSQL_ROW is two-dimensional array).
-     * But how to get the entry position? */
-
-    /* fill the columns names */
     x = 0;
     y = 0;
 
-    while ((vls_fld = mysql_fetch_field(vls_res))) {
+    while (vls_fld = mysql_fetch_field(vls_res)) {
         label = gtk_label_new(vls_fld->name);
 
         gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
@@ -843,27 +781,26 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
         x++;
     }
 
-    /* make space after columns for vertical scroll bar */
+    /* Make a space after the columns for a vertical scroll bar. */
     label = gtk_label_new("");
     gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
     x = 0;
     y++;
 
-    /* fill the columns values */
+    /* Fill the column values. */
     vls_n = mysql_num_fields(vls_res);
 
-    while ((vls_row = mysql_fetch_row(vls_res))) {
-        gint i;
+    while (vls_row = mysql_fetch_row(vls_res)) {
+        int i;
 
         for (i = 0; i < vls_n; i++) {
-            if (g_strcmp0(vls_row[i], "") == 0 || !vls_row[i])
+            if (!g_strcmp0(vls_row[i], "") || !vls_row[i])
                 label = gtk_label_new("NULL");
             else
                 label = gtk_label_new(vls_row[i]);
 
             gtk_label_set_xalign(GTK_LABEL(label), 0.0);
-
             gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
             x++;
@@ -873,83 +810,76 @@ static void window_table(GtkApplication *app, MYSQL *con, const gchar *tb_name)
         y++;
     }
 
-    /* make space after rows for horizontal scroll bar */
+    /* Make a space after the rows for a horizontal scroll bar. */
     label = gtk_label_new("");
     gtk_grid_attach(GTK_GRID(grid), label, x, y, 1, 1);
 
     mysql_free_result(vls_res);
     g_free(cmd);
 
-    gtk_widget_show_all(window);
+    gtk_widget_show_all(win);
 }
 
-static void table_selected(GtkWidget *widget, gpointer data)
+static void
+table_sel_cb(GtkWidget *wdg, gpointer data)
 {
-    (void) widget;
-
     GtkApplication *app;
-    GtkTreeSelection *selection;
-    GtkTreeModel *model;
+    GtkTreeSelection *sel;
+    GtkTreeModel *mdl;
     GtkTreePath *path;
     GList *rows = NULL;
     GList *tmp = NULL;
     MYSQL *con = NULL;
-    struct wrapped_data *wrap_data = data;
-    struct selection_data *sel_data = wrap_data->data;
+    struct wrap_data *wd = data;
+    struct sel_data *sld = wd->data;
 
-    app = GTK_APPLICATION(wrap_data->app);
-    selection = sel_data->selection;
-    con = sel_data->con;
+    app = GTK_APPLICATION(wd->app);
+    sel = sld->sel;
+    con = sld->con;
 
-    rows = gtk_tree_selection_get_selected_rows(selection, &model);
-    if (rows == NULL) {
+    rows = gtk_tree_selection_get_selected_rows(sel, &mdl);
+    if (!rows) {
         g_print("No selected tables.\n");
 
         return;
     }
 
     for (tmp = rows; tmp; tmp = tmp->next) {
+        GtkTreeIter iter;
+        GtkTreeIter child;
+        GtkTreeIter parent;
+        int depth;
+
+        if (!tmp->data)
+            continue;
+
         path = tmp->data;
 
-        if (path) {
-            GtkTreeIter iter;
-            GtkTreeIter child;
-            GtkTreeIter parent;
-            gint depth;
+        if (!gtk_tree_model_get_iter(mdl, &iter, path))
+            continue;
 
-            depth = gtk_tree_path_get_depth(path);
+        depth = gtk_tree_path_get_depth(path);
+        if (!gtk_tree_model_iter_children(mdl, &child, &iter) && depth > 1) {
+            /* It's a table. */
+            gchar *value;
+            gchar *cmd;
 
-            if (gtk_tree_model_get_iter(model, &iter, path)) {
-                if (!gtk_tree_model_iter_children(model, &child, &iter)) {
-                    if (depth > 1) {
-                        /* It's table. Maybe, it belongs another database,
-                         * so use its database just in case. */
-                        gchar *value;
-                        gchar *cmd;
+            if (gtk_tree_model_iter_parent(mdl, &parent, &iter)) {
+                gtk_tree_model_get(mdl, &parent, COLUMN, &value, -1);
 
-                        if (gtk_tree_model_iter_parent(model, &parent,
-                                &iter)) {
-                            gtk_tree_model_get(model, &parent, COLUMN,
-                                &value, -1);
+                cmd = g_strdup_printf("use %s", value);
+                if (mysql_query(con, cmd) != 0)
+                    con_assert(con);
 
-                            cmd = g_strdup_printf("use %s", value);
-                            if (mysql_query(con, cmd))
-                                connection_terminate(con);
+                con->db = g_strdup(value);
 
-                            /* give connection database
-                             * name for table title */
-                            con->db = g_strdup(value);
+                gtk_tree_model_get(mdl, &iter, COLUMN, &value, -1);
 
-                            /* now, value is table name */
-                            gtk_tree_model_get(model, &iter, COLUMN,
-                                &value, -1);
-                            window_table(app, con, value);
+                /* Now, the value is a table name. */
+                win_table(app, con, value);
 
-                            g_free(value);
-                            g_free(cmd);
-                        }
-                    }
-                }
+                g_free(value);
+                g_free(cmd);
             }
         }
     }
@@ -957,55 +887,57 @@ static void table_selected(GtkWidget *widget, gpointer data)
     g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 }
 
-static GtkTreeModel * databases_get(MYSQL *con)
+static GtkTreeModel *
+dbs_get(MYSQL *con)
 {
     GtkTreeStore *ts;
     GtkTreeIter dbs_lvl;
     GtkTreeIter tbs_lvl;
     MYSQL_RES *dbs_res;
     MYSQL_RES *tbs_res;
-    MYSQL_ROW dbs_row; /* databases names */
-    MYSQL_ROW tbs_row; /* tables names */
-    gint dbs_n;
+    MYSQL_ROW dbs_row; /* The database names. */
+    MYSQL_ROW tbs_row; /* The table names. */
+    int dbs_n;
 
-    if (mysql_query(con, "show databases"))
-        connection_terminate(con);
+    if (mysql_query(con, "show databases") != 0)
+        con_assert(con);
 
     dbs_res = mysql_store_result(con);
-    if (dbs_res == NULL)
-        connection_terminate(con);
+    if (!dbs_res)
+        con_assert(con);
 
     ts = gtk_tree_store_new(NUM_COLS, G_TYPE_STRING);
 
-    /* get count of fields from the result */
+    /* Get a count of the fields from the result. */
     dbs_n = mysql_num_fields(dbs_res);
 
-    /* write first row to 'dbs' */
-    while ((dbs_row = mysql_fetch_row(dbs_res))) {
-        gint i;
+    /* Get the rows. */
+    while (dbs_row = mysql_fetch_row(dbs_res)) {
+        int i;
 
         for (i = 0; i < dbs_n; i++) {
             gchar *cmd;
-            gint tbs_n;
+            int tbs_n;
 
             gtk_tree_store_append(ts, &dbs_lvl, NULL);
             gtk_tree_store_set(ts, &dbs_lvl, COLUMN, dbs_row[i], -1);
 
             cmd = g_strdup_printf("use %s", dbs_row[i]);
-            if (mysql_query(con, cmd))
-                connection_terminate(con);
+            if (mysql_query(con, cmd) != 0)
+                con_assert(con);
 
-            if (mysql_query(con, "show tables"))
-                connection_terminate(con);
+            /* FIXME: What I'm doing? */
+            if (mysql_query(con, "show tables") != 0)
+                con_assert(con);
 
             tbs_res = mysql_store_result(con);
-            if (tbs_res == NULL)
-                connection_terminate(con);
+            if (!tbs_res)
+                con_assert(con);
 
             tbs_n = mysql_num_fields(tbs_res);
 
-            while ((tbs_row = mysql_fetch_row(tbs_res))) {
-                gint j;
+            while (tbs_row = mysql_fetch_row(tbs_res)) {
+                int j;
 
                 for (j = 0; j < tbs_n; j++) {
                     gtk_tree_store_append(ts, &tbs_lvl, &dbs_lvl);
@@ -1023,56 +955,44 @@ static GtkTreeModel * databases_get(MYSQL *con)
     return GTK_TREE_MODEL(ts);
 }
 
-static void servers_store_add_server(GtkListStore **store, const gchar *s_name)
-{
-    GtkTreeIter iter;
-
-    gtk_list_store_append(*store, &iter);
-    gtk_list_store_set(*store, &iter, COLUMN, s_name, -1);
-}
-
-static GtkWidget * servers_view_create(GtkListStore *store)
+static GtkWidget *
+con_view_create(GtkListStore *store)
 {
     GtkTreeViewColumn *col;
     GtkCellRenderer *renderer;
     GtkWidget *view;
 
     view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(store));
-
     col = gtk_tree_view_column_new();
-    gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
-
     renderer = gtk_cell_renderer_text_new();
+
+    gtk_tree_view_append_column(GTK_TREE_VIEW(view), col);
     gtk_tree_view_column_pack_start(col, renderer, TRUE);
     gtk_tree_view_column_add_attribute(col, renderer, "text", COLUMN);
-
     gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(view), FALSE);
 
     return view;
 }
 
-static void server_selected(GtkWidget *widget, gpointer data)
+static void
+con_sel_cb(GtkWidget *wdg, gpointer data)
 {
-    (void) widget;
-
     GtkApplication *app;
-    GtkTreeSelection *selection;
+    GtkTreeSelection *sel;
     GtkTreeModel *model;
     GtkTreePath *path;
     GList *rows = NULL;
     GList *tmp = NULL;
     MYSQL *con = NULL;
+    struct wrap_data *wd = data;
+    struct con_data *cd = wd->data;
 
-    struct wrapped_data *wrap_data = data;
-    struct server_data *serv_data = wrap_data->data;
+    app = GTK_APPLICATION(wd->app);
+    sel = gtk_tree_view_get_selection(cd->cview);
 
-    app = GTK_APPLICATION(wrap_data->app);
-
-    selection = gtk_tree_view_get_selection(serv_data->servers_view);
-
-    rows = gtk_tree_selection_get_selected_rows(selection, &model);
-    if (rows == NULL) {
-        g_print("No selected servers.\n");
+    rows = gtk_tree_selection_get_selected_rows(sel, &model);
+    if (!rows) {
+        g_print("No the connections selected.\n");
 
         return;
     }
@@ -1081,53 +1001,36 @@ static void server_selected(GtkWidget *widget, gpointer data)
         path = tmp->data;
 
         if (path) {
-            gint *index;
-            struct server *serv;
+            int *index;
+            struct con_info *ci;
 
             index = gtk_tree_path_get_indices(path);
 
             con = mysql_init(con);
-            if (con == NULL) {
-                g_print("Failed to open connection!\n");
+            if (!con) {
+                g_print("Failed to open a connection!\n");
 
-                connection_terminate(con);
-
+                con_assert(con);
                 g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
                 return;
             }
 
-            /* get data, placed by index in the servers list */
-            serv = g_list_nth_data(serv_data->servers_list, index[0]);
+            /* Get a data, placed by a connection list's index. */
+            ci = g_list_nth_data(cd->clist, index[0]);
 
-            g_print("Username: %s\n", serv->username);
-            g_print("Password: ******\n");
-            g_print("Connecting to %s...\n", serv->host);
-
-            if (mysql_real_connect(con,
-                    serv->host,
-                    serv->username,
-                    serv->password,
-                    NULL, 0, NULL, 0) == NULL) {
-                g_print("Connection failed!\n");
-
-                connection_terminate(con);
-
+            if (!connect(con, ci))
                 g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 
-                continue;
-            }
-
-            g_print("Successfully connected.\n");
-
-            window_databases(app, con);
+            win_dbs(app, con);
         }
     }
 
     g_list_free_full(rows, (GDestroyNotify) gtk_tree_path_free);
 }
 
-static GtkWidget * databases_view_create(MYSQL *con)
+static GtkWidget *
+dbs_view_create(MYSQL *con)
 {
     GtkWidget *view;
     GtkTreeModel *model;
@@ -1144,21 +1047,23 @@ static GtkWidget * databases_view_create(MYSQL *con)
     gtk_tree_view_column_pack_start(col, renderer, TRUE);
     gtk_tree_view_column_add_attribute(col, renderer, "text", COLUMN);
 
-    model = databases_get(con);
+    model = dbs_get(con);
     gtk_tree_view_set_model(GTK_TREE_VIEW(view), model);
     g_object_unref(model);
 
     return view;
 }
 
-static void connection_terminate(MYSQL *con)
+static void
+con_assert(MYSQL *con)
 {
-    g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
+    g_print("Error %u: %s.\n", mysql_errno(con), mysql_error(con));
 
-    connection_close(NULL, con);
+    con_close(NULL, con);
 }
 
-static void connection_error(MYSQL *con)
+static void
+con_warn(MYSQL *con)
 {
-    g_print("Error %u: %s\n", mysql_errno(con), mysql_error(con));
+    g_print("Error %u: %s.\n", mysql_errno(con), mysql_error(con));
 }
